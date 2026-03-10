@@ -13,12 +13,15 @@ type DataStorage struct {
 }
 
 func main() {
-	storage := DataStorage{make(map[string]float64), make(map[string]int64)}
+	memStorage := DataStorage{
+		make(map[string]float64),
+		make(map[string]int64),
+	}
 
 	fmt.Println("Starting server...")
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/update/", updateHandler(storage))
+	mux.HandleFunc("/update/", updateHandler(&memStorage))
 
 	err := http.ListenAndServe(":8080", mux)
 
@@ -27,16 +30,20 @@ func main() {
 	}
 }
 
-func updateHandler(storage DataStorage) http.HandlerFunc {
+func updateHandler(memStorage *DataStorage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		}
 		path := strings.Split(r.URL.Path, "/")
-		fmt.Println(path)
 
 		if r.Header.Get("Content-Type") != "text/plain" {
 			http.Error(w, "Invalid data format", http.StatusNotFound)
+		}
+
+		if len(path) < 4 {
+			http.Error(w, "Invalid URL format", http.StatusNotFound)
+			return
 		}
 
 		metricType, metricName, metricValue := path[2], path[3], path[4]
@@ -48,7 +55,7 @@ func updateHandler(storage DataStorage) http.HandlerFunc {
 				badRequest(w)
 				return
 			}
-			storage.counters[metricName] += pathValue
+			memStorage.counters[metricName] += pathValue
 			w.WriteHeader(http.StatusOK)
 		case "gauge":
 			pathValue, err := strconv.ParseFloat(metricValue, 64)
@@ -56,7 +63,7 @@ func updateHandler(storage DataStorage) http.HandlerFunc {
 				badRequest(w)
 				return
 			}
-			storage.gauges[metricName] = pathValue
+			memStorage.gauges[metricName] = pathValue
 		default:
 			badRequest(w)
 		}
