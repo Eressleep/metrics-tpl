@@ -57,7 +57,6 @@ func updateHandler(storage DataStorage) http.HandlerFunc {
 				return
 			}
 			storage.gauges[metricName] = pathValue
-
 		default:
 			badRequest(w)
 		}
