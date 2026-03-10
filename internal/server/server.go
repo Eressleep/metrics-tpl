@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
 	"github.com/gin-gonic/gin"
@@ -23,6 +26,7 @@ type Server struct {
 	config  *Config
 	router  *gin.Engine
 	handler *handlers.MetricsHandler
+	httpSrv *http.Server // Добавьте это поле
 }
 
 func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
@@ -38,6 +42,8 @@ func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
 
 	router.GET("/", metricsHandler.GetAllMetrics)
 
+	router.GET("/ping", metricsHandler.Ping)
+
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
 	})
@@ -47,10 +53,16 @@ func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
 		c.JSON(405, gin.H{"error": "method not allowed"})
 	})
 
+	httpSrv := &http.Server{
+		Addr:    config.Addr,
+		Handler: router,
+	}
+
 	return &Server{
 		config:  config,
 		router:  router,
 		handler: metricsHandler,
+		httpSrv: httpSrv,
 	}
 }
 
@@ -60,11 +72,21 @@ func (s *Server) Run() error {
 	fmt.Println("  POST   /update/:type/:name/:value  - Update metric")
 	fmt.Println("  GET    /value/:type/:name          - Get metric value")
 	fmt.Println("  GET    /                            - View all metrics")
+	fmt.Println("  GET    /ping                         - Health check")
 
-	return s.router.Run(s.config.Addr)
+	return s.httpSrv.ListenAndServe()
 }
 
 func (s *Server) Stop() error {
 	fmt.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.httpSrv.Shutdown(ctx); err != nil {
+		return fmt.Errorf("server shutdown failed: %w", err)
+	}
+
+	fmt.Println("Server stopped gracefully")
 	return nil
 }

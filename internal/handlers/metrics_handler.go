@@ -3,11 +3,20 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/Eressleep/metrics-tpl/internal/storage"
 	"github.com/gin-gonic/gin"
 )
+
+func isValidMetricName(name string) bool {
+	if len(name) == 0 || len(name) > 100 {
+		return false
+	}
+	matched, _ := regexp.MatchString(`^[a-zA-Z0-9_]+$`, name)
+	return matched
+}
 
 type MetricsHandler struct {
 	storage storage.Storage
@@ -26,6 +35,11 @@ func (h *MetricsHandler) Update(c *gin.Context) {
 
 	if metricName == "" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "metric name is required"})
+		return
+	}
+
+	if !isValidMetricName(metricName) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric name format"})
 		return
 	}
 
@@ -68,6 +82,11 @@ func (h *MetricsHandler) GetValue(c *gin.Context) {
 		return
 	}
 
+	if !isValidMetricName(metricName) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric name format"})
+		return
+	}
+
 	switch metricType {
 	case "counter":
 		value, err := h.storage.GetCounter(metricName)
@@ -92,11 +111,9 @@ func (h *MetricsHandler) GetValue(c *gin.Context) {
 }
 
 func (h *MetricsHandler) GetAllMetrics(c *gin.Context) {
-	// Получаем все метрики
 	gauges := h.storage.GetAllGauges()
 	counters := h.storage.GetAllCounters()
 
-	// Простой HTML без шаблона
 	html := "<!DOCTYPE html><html><head><title>Metrics</title><style>"
 	html += "body{font-family:Arial;margin:20px;background:#f5f5f5}"
 	html += "h1{color:#333} h2{color:#666}"
@@ -160,4 +177,7 @@ func (h *MetricsHandler) handleGauge(name, valueStr string) error {
 		return fmt.Errorf("invalid gauge value: %w", err)
 	}
 	return h.storage.UpdateGauge(name, value)
+}
+func (h *MetricsHandler) Ping(c *gin.Context) {
+	c.String(http.StatusOK, "pong")
 }

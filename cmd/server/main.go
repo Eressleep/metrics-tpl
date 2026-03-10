@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
 	"github.com/Eressleep/metrics-tpl/internal/server"
@@ -35,7 +36,9 @@ func main() {
 	<-quit
 	log.Println("Received shutdown signal")
 
-	// Останавливаем сервер
+	log.Println("Waiting for ongoing requests to complete...")
+	time.Sleep(1 * time.Second)
+
 	if err := srv.Stop(); err != nil {
 		log.Fatal("Server shutdown failed:", err)
 	}
