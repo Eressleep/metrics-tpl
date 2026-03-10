@@ -36,7 +36,6 @@ type Metrics struct {
 	Sys           float64
 	TotalAlloc    float64
 
-	// Дополнительные метрики
 	PollCount   int64   // counter
 	RandomValue float64 // gauge
 
