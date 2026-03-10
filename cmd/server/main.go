@@ -13,18 +13,16 @@ type DataStorage struct {
 }
 
 func main() {
-	memStorage := DataStorage{
-		make(map[string]float64),
-		make(map[string]int64),
+	memStorage := &DataStorage{ // Можно сразу взять указатель
+		gauges:   make(map[string]float64),
+		counters: make(map[string]int64),
 	}
 
-	fmt.Println("Starting server...")
+	fmt.Println("Starting server on :8080...")
 	mux := http.NewServeMux()
-
-	mux.HandleFunc("/update/", updateHandler(&memStorage))
+	mux.HandleFunc("/update/", updateHandler(memStorage))
 
 	err := http.ListenAndServe(":8080", mux)
-
 	if err != nil {
 		panic(err)
 	}
@@ -36,10 +34,13 @@ func updateHandler(memStorage *DataStorage) http.HandlerFunc {
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 			return
 		}
+
 		path := strings.Split(r.URL.Path, "/")
 
-		if r.Header.Get("Content-Type") != "text/plain" {
+		contentType := r.Header.Get("Content-Type")
+		if contentType != "" && contentType != "text/plain" {
 			http.Error(w, "Invalid data format", http.StatusNotFound)
+			return
 		}
 
 		if len(path) < 4 {
@@ -47,20 +48,20 @@ func updateHandler(memStorage *DataStorage) http.HandlerFunc {
 			return
 		}
 
-		metricType, metricName, metricValue := path[2], path[3], path[4]
+		metricType := path[2]
+		metricName := path[3]
 
 		if metricName == "" {
 			http.Error(w, "Metric name is required", http.StatusNotFound)
 			return
 		}
 
-		// Проверяем наличие значения
 		if len(path) < 5 {
 			http.Error(w, "Metric value is required", http.StatusNotFound)
 			return
 		}
+		metricValue := path[4]
 
-		// Проверка на пустое значение
 		if metricValue == "" {
 			http.Error(w, "Metric value cannot be empty", http.StatusNotFound)
 			return
@@ -68,27 +69,27 @@ func updateHandler(memStorage *DataStorage) http.HandlerFunc {
 
 		switch metricType {
 		case "counter":
-			pathValue, err := strconv.ParseInt(metricValue, 10, 64)
+			value, err := strconv.ParseInt(metricValue, 10, 64)
 			if err != nil {
-				badRequest(w)
+				http.Error(w, "Invalid counter value", http.StatusBadRequest)
 				return
 			}
-			memStorage.counters[metricName] += pathValue
+			memStorage.counters[metricName] += value
 			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "OK")
+
 		case "gauge":
-			pathValue, err := strconv.ParseFloat(metricValue, 64)
+			value, err := strconv.ParseFloat(metricValue, 64)
 			if err != nil {
-				badRequest(w)
+				http.Error(w, "Invalid gauge value", http.StatusBadRequest)
 				return
 			}
-			memStorage.gauges[metricName] = pathValue
+			memStorage.gauges[metricName] = value
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "OK")
+
 		default:
-			badRequest(w)
+			http.Error(w, "Unknown metric type", http.StatusBadRequest)
 		}
 	}
-
-}
-
-func badRequest(w http.ResponseWriter) {
-	http.Error(w, "Bad request", http.StatusBadRequest)
 }
