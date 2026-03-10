@@ -9,6 +9,7 @@ import (
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
 	"github.com/Eressleep/metrics-tpl/internal/server"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -18,6 +19,8 @@ func main() {
 
 	config := server.NewDefaultConfig()
 
+	config.Mode = gin.DebugMode
+
 	srv := server.New(config, metricsHandler)
 
 	quit := make(chan os.Signal, 1)
@@ -25,13 +28,14 @@ func main() {
 
 	go func() {
 		if err := srv.Run(); err != nil {
-			log.Fatal("Server failed:", err)
+			log.Printf("Server stopped: %v", err)
 		}
 	}()
 
 	<-quit
 	log.Println("Received shutdown signal")
 
+	// Останавливаем сервер
 	if err := srv.Stop(); err != nil {
 		log.Fatal("Server shutdown failed:", err)
 	}

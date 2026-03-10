@@ -96,11 +96,54 @@ func (h *MetricsHandler) GetAllMetrics(c *gin.Context) {
 	gauges := h.storage.GetAllGauges()
 	counters := h.storage.GetAllCounters()
 
-	// Используем HTML шаблон Gin
-	c.HTML(http.StatusOK, "metrics.tmpl", gin.H{
-		"Gauges":   gauges,
-		"Counters": counters,
-	})
+	// Простой HTML без шаблона
+	html := "<!DOCTYPE html><html><head><title>Metrics</title><style>"
+	html += "body{font-family:Arial;margin:20px;background:#f5f5f5}"
+	html += "h1{color:#333} h2{color:#666}"
+	html += "table{border-collapse:collapse;width:100%;background:white;box-shadow:0 2px 5px rgba(0,0,0,0.1)}"
+	html += "th,td{text-align:left;padding:12px;border-bottom:1px solid #ddd}"
+	html += "th{background:#4CAF50;color:white}"
+	html += "tr:hover{background:#f5f5f5}"
+	html += ".counter{background:#e7f3ff}"
+	html += ".stats{margin:20px 0;padding:15px;background:white;border-radius:5px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}"
+	html += "</style></head><body>"
+
+	html += "<h1>📊 Metrics Dashboard</h1>"
+
+	html += "<div class='stats'>"
+	html += fmt.Sprintf("<p><strong>Total Gauges:</strong> %d</p>", len(gauges))
+	html += fmt.Sprintf("<p><strong>Total Counters:</strong> %d</p>", len(counters))
+	html += fmt.Sprintf("<p><strong>Total Metrics:</strong> %d</p>", len(gauges)+len(counters))
+	html += "</div>"
+
+	// Gauges
+	html += "<h2>📈 Gauge Metrics</h2>"
+	if len(gauges) > 0 {
+		html += "<table><tr><th>Metric Name</th><th>Value</th></tr>"
+		for name, value := range gauges {
+			html += fmt.Sprintf("<tr><td>%s</td><td>%g</td></tr>", name, value)
+		}
+		html += "</table>"
+	} else {
+		html += "<p>No gauge metrics available</p>"
+	}
+
+	// Counters
+	html += "<h2>🔢 Counter Metrics</h2>"
+	if len(counters) > 0 {
+		html += "<table><tr><th>Metric Name</th><th>Value</th></tr>"
+		for name, value := range counters {
+			html += fmt.Sprintf("<tr class='counter'><td>%s</td><td>%d</td></tr>", name, value)
+		}
+		html += "</table>"
+	} else {
+		html += "<p>No counter metrics available</p>"
+	}
+
+	html += "</body></html>"
+
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.String(http.StatusOK, html)
 }
 
 func (h *MetricsHandler) handleCounter(name, valueStr string) error {
