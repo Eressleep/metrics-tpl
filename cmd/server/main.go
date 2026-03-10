@@ -15,13 +15,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func getStringFromEnv(flagValue string, envName string, defaultValue string) string {
+	if envValue := os.Getenv(envName); envValue != "" {
+		return envValue
+	}
+	if flagValue != defaultValue {
+		return flagValue
+	}
+	return defaultValue
+}
+
 func main() {
-	serverAddr := flag.String("a", ":8080", "адрес эндпоинта HTTP-сервера")
+	serverAddrFlag := flag.String("a", ":8080", "адрес эндпоинта HTTP-сервера")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Использование: %s [флаги]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Флаги:\n")
 		fmt.Fprintf(os.Stderr, "  -a=<ЗНАЧЕНИЕ>   адрес эндпоинта HTTP-сервера (по умолчанию :8080)\n")
+		fmt.Fprintf(os.Stderr, "\nТакже поддерживаются переменные окружения:\n")
+		fmt.Fprintf(os.Stderr, "  ADDRESS         адрес эндпоинта HTTP-сервера\n")
 	}
 
 	flag.Parse()
@@ -31,11 +43,13 @@ func main() {
 		log.Fatalf("неизвестные аргументы: %v", args)
 	}
 
+	serverAddr := getStringFromEnv(*serverAddrFlag, "ADDRESS", ":8080")
+
 	memStorage := storage.NewMemStorage()
 	metricsHandler := handlers.NewMetricsHandler(memStorage)
 
 	config := server.NewDefaultConfig()
-	config.Addr = *serverAddr
+	config.Addr = serverAddr
 	config.Mode = gin.DebugMode
 
 	srv := server.New(config, metricsHandler)
