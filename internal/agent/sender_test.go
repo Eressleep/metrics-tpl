@@ -49,9 +49,10 @@ func TestSenderSendAllMetrics(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
-	sender.sendAllMetrics()
+	sender.sendAllMetrics() // Отправляем все метрики один раз
 
-	if requestCount < 10 {
-		t.Errorf("Expected at least 10 requests, got %d", requestCount)
+	expectedRequests := 29 // или точное количество метрик
+	if requestCount < expectedRequests {
+		t.Errorf("Expected at least %d requests, got %d", expectedRequests, requestCount)
 	}
 }

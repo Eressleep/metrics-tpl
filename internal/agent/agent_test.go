@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -63,40 +65,57 @@ func NewMockSender() *MockSender {
 }
 
 func TestSender(t *testing.T) {
-	server := NewTestServer()
+	requestCount := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusOK)
+	}))
 	defer server.Close()
 
 	collector := NewCollector(50 * time.Millisecond)
 	collector.Start()
 	defer collector.Stop()
 
-	sender := NewSender(server.Addr(), 100*time.Millisecond, collector)
+	sender := NewSender(server.Listener.Addr().String(), 100*time.Millisecond, collector)
 	sender.Start()
 	defer sender.Stop()
 
-	// Ждём отправки
 	time.Sleep(250 * time.Millisecond)
 
-	// Проверяем, что сервер получил метрики
-	if server.GetRequestCount() == 0 {
+	if requestCount == 0 {
 		t.Error("Server should have received requests")
 	}
 }
 
+type TestServer struct {
+	server       *httptest.Server
+	requestCount int
+}
+
 func NewTestServer() *TestServer {
-	return &TestServer{
+	ts := &TestServer{
 		requestCount: 0,
-		addr:         "localhost:8081",
+	}
+
+	ts.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ts.requestCount++
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	return ts
+}
+
+func (s *TestServer) Close() {
+	if s.server != nil {
+		s.server.Close()
 	}
 }
 
-type TestServer struct {
-	requestCount int
-	addr         string
+func (s *TestServer) Addr() string {
+	return s.server.Listener.Addr().String()
 }
 
-func (s *TestServer) Close() {}
-
-func (s *TestServer) Addr() string { return s.addr }
-
-func (s *TestServer) GetRequestCount() int { return s.requestCount }
+func (s *TestServer) GetRequestCount() int {
+	return s.requestCount
+}
