@@ -23,44 +23,65 @@ func NewSender(serverAddr string, reportInterval time.Duration, collector *Colle
 		collector:      collector,
 		client:         &http.Client{Timeout: 5 * time.Second},
 		stopChan:       make(chan struct{}),
-		maxRetries:     3,               // Добавить инициализацию
-		retryDelay:     1 * time.Second, // Добавить инициализацию
+		maxRetries:     3,
+		retryDelay:     1 * time.Second,
 	}
 }
 
-// Добавить новый метод с ретраями
-func (s *Sender) sendWithRetry(metricType, name string, value interface{}) error {
+func (s *Sender) Start() {
+	go s.reportLoop()
+}
+
+func (s *Sender) Stop() {
+	close(s.stopChan)
+}
+
+func (s *Sender) reportLoop() {
+	ticker := time.NewTicker(s.reportInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-ticker.C:
+			s.sendAllMetrics()
+		}
+	}
+}
+
+func (s *Sender) sendAllMetrics() {
+	metrics := s.collector.GetMetrics()
+
+	for name, value := range metrics.GetAllGauges() {
+		go s.sendWithRetry("gauge", name, value)
+	}
+
+	go s.sendWithRetry("counter", "PollCount", metrics.GetPollCount())
+}
+
+func (s *Sender) sendWithRetry(metricType, name string, value interface{}) {
 	var lastErr error
 	for i := 0; i < s.maxRetries; i++ {
 		if i > 0 {
-			// Экспоненциальная задержка: 1s, 2s, 4s
 			delay := s.retryDelay * time.Duration(1<<uint(i-1))
 			time.Sleep(delay)
 		}
 
 		err := s.sendMetric(metricType, name, value)
 		if err == nil {
-			return nil
+			return
 		}
 		lastErr = err
-		fmt.Printf("Retry %d/%d for metric %s after error: %v\n",
-			i+1, s.maxRetries, name, err)
-	}
-	return fmt.Errorf("failed after %d retries: %w", s.maxRetries, lastErr)
-}
 
-// Обновить метод sendAllMetrics для использования ретраев
-func (s *Sender) sendAllMetrics() {
-	metrics := s.collector.GetMetrics()
-
-	for name, value := range metrics.GetAllGauges() {
-		go s.sendWithRetry("gauge", name, value) // Использовать горутины для параллельной отправки
 	}
 
-	go s.sendWithRetry("counter", "PollCount", metrics.GetPollCount())
+	if lastErr != nil {
+		fmt.Printf("Failed to send metric %s after %d retries: %v\n",
+			name, s.maxRetries, lastErr)
+	}
 }
 
-// Обновить sendMetric для возврата ошибки
 func (s *Sender) sendMetric(metricType, name string, value interface{}) error {
 	url := fmt.Sprintf("http://%s/update/%s/%s/%v", s.serverAddr, metricType, name, value)
 
