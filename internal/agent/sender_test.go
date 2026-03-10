@@ -8,7 +8,6 @@ import (
 )
 
 func TestSenderSendMetric(t *testing.T) {
-	// Создаём тестовый сервер
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("Expected POST, got %s", r.Method)
@@ -49,9 +48,9 @@ func TestSenderSendAllMetrics(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
-	sender.sendAllMetrics() // Отправляем все метрики один раз
+	sender.sendAllMetrics()
 
-	expectedRequests := 29 // или точное количество метрик
+	expectedRequests := 29
 	if requestCount < expectedRequests {
 		t.Errorf("Expected at least %d requests, got %d", expectedRequests, requestCount)
 	}

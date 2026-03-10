@@ -82,21 +82,18 @@ func (m *Metrics) UpdateRuntime() {
 	m.TotalAlloc = float64(memStats.TotalAlloc)
 }
 
-// UpdateRandom обновляет случайное значение
 func (m *Metrics) UpdateRandom() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.RandomValue = rand.Float64()
 }
 
-// IncrementPollCount увеличивает счётчик PollCount
 func (m *Metrics) IncrementPollCount() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.PollCount++
 }
 
-// GetAllGauges возвращает все gauge метрики
 func (m *Metrics) GetAllGauges() map[string]float64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -133,7 +130,6 @@ func (m *Metrics) GetAllGauges() map[string]float64 {
 	}
 }
 
-// GetPollCount возвращает значение PollCount
 func (m *Metrics) GetPollCount() int64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

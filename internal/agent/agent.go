@@ -1,6 +1,10 @@
 package agent
 
 import (
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -39,8 +43,13 @@ func (a *Agent) Run() {
 	a.collector.Start()
 	a.sender.Start()
 
-	// Бесконечное ожидание (можно заменить на graceful shutdown)
-	select {}
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	<-sigChan
+	log.Println("Получен сигнал завершения, останавливаем агент...")
+
+	a.Stop()
 }
 
 func (a *Agent) Stop() {

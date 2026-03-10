@@ -26,7 +26,7 @@ type Server struct {
 	config  *Config
 	router  *gin.Engine
 	handler *handlers.MetricsHandler
-	httpSrv *http.Server // Добавьте это поле
+	httpSrv *http.Server
 }
 
 func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {

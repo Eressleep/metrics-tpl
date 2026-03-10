@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -14,12 +16,26 @@ import (
 )
 
 func main() {
-	memStorage := storage.NewMemStorage()
+	serverAddr := flag.String("a", ":8080", "адрес эндпоинта HTTP-сервера")
 
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Использование: %s [флаги]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Флаги:\n")
+		fmt.Fprintf(os.Stderr, "  -a=<ЗНАЧЕНИЕ>   адрес эндпоинта HTTP-сервера (по умолчанию :8080)\n")
+	}
+
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) > 0 {
+		log.Fatalf("неизвестные аргументы: %v", args)
+	}
+
+	memStorage := storage.NewMemStorage()
 	metricsHandler := handlers.NewMetricsHandler(memStorage)
 
 	config := server.NewDefaultConfig()
-
+	config.Addr = *serverAddr
 	config.Mode = gin.DebugMode
 
 	srv := server.New(config, metricsHandler)
@@ -29,19 +45,19 @@ func main() {
 
 	go func() {
 		if err := srv.Run(); err != nil {
-			log.Printf("Server stopped: %v", err)
+			log.Printf("Сервер остановлен: %v", err)
 		}
 	}()
 
 	<-quit
-	log.Println("Received shutdown signal")
+	log.Println("Получен сигнал завершения")
 
-	log.Println("Waiting for ongoing requests to complete...")
+	log.Println("Ожидание завершения текущих запросов...")
 	time.Sleep(1 * time.Second)
 
 	if err := srv.Stop(); err != nil {
-		log.Fatal("Server shutdown failed:", err)
+		log.Fatal("Ошибка при остановке сервера:", err)
 	}
 
-	log.Println("Server exited properly")
+	log.Println("Сервер успешно завершил работу")
 }
