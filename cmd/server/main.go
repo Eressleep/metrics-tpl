@@ -34,6 +34,7 @@ func updateHandler(memStorage *DataStorage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
 		}
 		path := strings.Split(r.URL.Path, "/")
 
@@ -47,6 +48,23 @@ func updateHandler(memStorage *DataStorage) http.HandlerFunc {
 		}
 
 		metricType, metricName, metricValue := path[2], path[3], path[4]
+
+		if metricName == "" {
+			http.Error(w, "Metric name is required", http.StatusNotFound)
+			return
+		}
+
+		// Проверяем наличие значения
+		if len(path) < 5 {
+			http.Error(w, "Metric value is required", http.StatusNotFound)
+			return
+		}
+
+		// Проверка на пустое значение
+		if metricValue == "" {
+			http.Error(w, "Metric value cannot be empty", http.StatusNotFound)
+			return
+		}
 
 		switch metricType {
 		case "counter":
