@@ -1,0 +1,31 @@
+{
+  "agent.starting": "Starting agent with poll interval: %v, report interval: %v",
+  "agent.sending_to": "Sending metrics to: %s",
+  "agent.shutdown_signal": "Received shutdown signal, stopping agent...",
+  "agent.unknown_arguments": "unknown arguments: %v",
+  "agent.usage_title": "Usage: %s [flags]",
+  "agent.usage_flags": "Flags:",
+  "agent.flag_a": "  -a=<VALUE>     HTTP server endpoint address (default localhost:8080)",
+  "agent.flag_r": "  -r=<VALUE>     metrics report interval in seconds (default 10)",
+  "agent.flag_p": "  -p=<VALUE>     metrics poll interval in seconds (default 2)",
+  "agent.env_vars": "\nEnvironment variables also supported:",
+  "agent.env_address": "  ADDRESS         HTTP server endpoint address",
+  "agent.env_report": "  REPORT_INTERVAL metrics report interval (seconds)",
+  "agent.env_poll": "  POLL_INTERVAL   metrics poll interval (seconds)",
+  "agent.agent_stopped": "Agent stopped",
+
+  "collector.started": "Metrics collector started",
+  "collector.stopped": "Metrics collector stopped",
+  "collector.metrics_collected": "Collected metrics: %d",
+
+  "sender.started": "Metrics sender started",
+  "sender.stopped": "Metrics sender stopped",
+  "sender.sending_metrics": "Sending %d metrics to server %s\n",
+  "sender.retry_attempt": "Retrying to send metric %s (attempt %d, after %v)...\n",
+  "sender.metric_sent": "Metric %s sent successfully\n",
+  "sender.send_error_attempt": "Error sending metric %s (attempt %d): %v\n",
+  "sender.send_failed": "Failed to send metric %s after %d attempts: %v\n",
+  "sender.request_error": "error creating request for %s: %w",
+  "sender.connection_error": "error sending metric %s: %w",
+  "sender.http_error": "unexpected status code for %s: %d"
+}
