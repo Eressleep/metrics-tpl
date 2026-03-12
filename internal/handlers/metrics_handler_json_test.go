@@ -21,7 +21,7 @@ func setupJSONTest() (*gin.Engine, storage.Storage) {
 	router.POST("/update", handler.UpdateJSON)
 	router.POST("/value", handler.GetValueJSON)
 
-	return router, store // Возвращаем только router и store
+	return router, store
 }
 
 func TestUpdateJSONGauge(t *testing.T) {
@@ -149,14 +149,12 @@ func TestUpdateJSONInvalidMetric(t *testing.T) {
 func TestGetValueJSON(t *testing.T) {
 	router, store := setupJSONTest()
 
-	// Сначала сохраняем метрику
 	value := 123.45
 	err := store.UpdateGauge("test_gauge", value)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Запрашиваем метрику
 	request := model.Metrics{
 		ID:    "test_gauge",
 		MType: model.Gauge,
