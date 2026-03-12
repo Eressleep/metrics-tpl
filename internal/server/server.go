@@ -7,14 +7,13 @@ import (
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
-	"github.com/Eressleep/metrics-tpl/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
 type Config struct {
 	Addr string
-	Mode string // "debug" или "release"
+	Mode string
 }
 
 func NewDefaultConfig() *Config {
@@ -41,12 +40,7 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	gin.SetMode(config.Mode)
 
 	router := gin.New()
-
-	router.Use(middleware.Logger(logger, middleware.LoggerConfig{
-		SkipPaths: []string{"/ping"},
-	}))
-
-	router.Use(gin.Recovery())
+	router.Use(gin.Logger(), gin.Recovery())
 
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
 	router.GET("/value/:type/:name", metricsHandler.GetValue)
@@ -56,11 +50,30 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
 	})
-
-	router.HandleMethodNotAllowed = true
 	router.NoMethod(func(c *gin.Context) {
 		c.JSON(405, gin.H{"error": "method not allowed"})
 	})
+
+	httpSrv := &http.Server{
+		Addr:    config.Addr,
+		Handler: router,
+	}
+
+	return &Server{
+		config:  config,
+		router:  router,
+		handler: metricsHandler,
+		httpSrv: httpSrv,
+		logger:  logger,
+	}
+}
+
+func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, router *gin.Engine, logger *zap.Logger) *Server {
+	gin.SetMode(config.Mode)
+
+	if router == nil {
+		return NewWithLogger(config, metricsHandler, logger)
+	}
 
 	httpSrv := &http.Server{
 		Addr:    config.Addr,
@@ -83,8 +96,8 @@ func (s *Server) Run() error {
 	fmt.Println("Available endpoints:")
 	fmt.Println("  POST   /update/:type/:name/:value  - Update metric")
 	fmt.Println("  GET    /value/:type/:name          - Get metric value")
-	fmt.Println("  GET    /                           - View all metrics")
-	fmt.Println("  GET    /ping                       - Health check")
+	fmt.Println("  GET    /                            - View all metrics")
+	fmt.Println("  GET    /ping                         - Health check")
 
 	return s.httpSrv.ListenAndServe()
 }
@@ -101,4 +114,12 @@ func (s *Server) Stop() error {
 
 	s.logger.Info("Server stopped gracefully")
 	return nil
+}
+
+func (s *Server) GetRouter() *gin.Engine {
+	return s.router
+}
+
+func (s *Server) GetLogger() *zap.Logger {
+	return s.logger
 }

@@ -1,15 +1,12 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
-	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
+	_ "time"
 
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
@@ -21,11 +18,12 @@ import (
 )
 
 func main() {
-	logger, err := zap.NewProduction() // Используем production конфигурацию
+	logger, err := zap.NewProduction()
 	if err != nil {
-		log.Fatalf("Не удалось инициализировать логгер: %v", err)
+		fmt.Fprintf(os.Stderr, "Не удалось инициализировать логгер: %v\n", err)
+		os.Exit(1)
 	}
-	defer logger.Sync() // Гарантируем сброс буферов при завершении
+	defer logger.Sync()
 
 	serverAddr := flag.String("a", ":8080", "адрес эндпоинта HTTP-сервера")
 
@@ -47,12 +45,16 @@ func main() {
 	memStorage := storage.NewMemStorage()
 	metricsHandler := handlers.NewMetricsHandler(memStorage)
 
-	gin.SetMode(gin.ReleaseMode)
+	config := server.NewDefaultConfig()
+	config.Addr = finalAddr
+	config.Mode = gin.ReleaseMode
+
+	gin.SetMode(config.Mode)
 	router := gin.New()
 
 	router.Use(
 		middleware.Logger(logger, middleware.LoggerConfig{
-			SkipPaths: []string{"/ping"}, // Пропускаем /ping для уменьшения шума
+			SkipPaths: []string{"/ping"},
 		}),
 		gin.Recovery(),
 	)
@@ -69,10 +71,7 @@ func main() {
 		c.JSON(405, gin.H{"error": "method not allowed"})
 	})
 
-	httpServer := &http.Server{
-		Addr:    finalAddr,
-		Handler: router,
-	}
+	srv := server.NewWithRouter(config, metricsHandler, router, logger)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -85,19 +84,16 @@ func main() {
 		fmt.Println("  GET    /")
 		fmt.Println("  GET    /ping")
 
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Ошибка при запуске сервера", zap.Error(err))
+		if err := srv.Run(); err != nil {
+			logger.Info("Сервер остановлен", zap.Error(err))
 		}
 	}()
 
 	<-quit
-	logger.Info("Получен сигнал завершения, начинаем graceful shutdown...")
+	logger.Info("Получен сигнал завершения, останавливаем сервер...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := httpServer.Shutdown(ctx); err != nil {
-		logger.Fatal("Ошибка при завершении сервера", zap.Error(err))
+	if err := srv.Stop(); err != nil {
+		logger.Fatal("Ошибка при остановке сервера", zap.Error(err))
 	}
 
 	logger.Info("Сервер успешно завершил работу")
