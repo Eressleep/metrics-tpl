@@ -12,37 +12,55 @@ type LoggerConfig struct {
 }
 
 func Logger(logger *zap.Logger, config LoggerConfig) gin.HandlerFunc {
-	skip := make(map[string]bool, len(config.SkipPaths))
+	skipPaths := make(map[string]bool, len(config.SkipPaths))
 	for _, path := range config.SkipPaths {
-		skip[path] = true
+		skipPaths[path] = true
 	}
 
 	return func(c *gin.Context) {
-		if skip[c.Request.URL.Path] {
+		if skipPaths[c.Request.URL.Path] {
 			c.Next()
 			return
 		}
 
-		start := time.Now()
-		path := c.Request.URL.Path
-		raw := c.Request.URL.RawQuery
-		if raw != "" {
-			path = path + "?" + raw
-		}
+		startTime := time.Now()
+
+		blw := &bodyLogWriter{body: make([]byte, 0), ResponseWriter: c.Writer}
+		c.Writer = blw
 
 		c.Next()
 
-		latency := time.Since(start)
-		status := c.Writer.Status()
-		size := c.Writer.Size()
-		method := c.Request.Method
+		latency := time.Since(startTime)
+		statusCode := c.Writer.Status()
+		contentLength := blw.Size() // Размер ответа в байтах
 
-		logger.Info("Request processed",
+		path := c.Request.URL.Path
+		if raw := c.Request.URL.RawQuery; raw != "" {
+			path = path + "?" + raw
+		}
+
+		logger.Info("Incoming request",
 			zap.String("uri", path),
-			zap.String("method", method),
+			zap.String("method", c.Request.Method),
 			zap.Duration("duration", latency),
-			zap.Int("status", status),
-			zap.Int("size", size),
+			zap.Int("status", statusCode),
+			zap.Int("response_size", contentLength),
+			zap.String("client_ip", c.ClientIP()),
+			zap.String("user_agent", c.Request.UserAgent()),
 		)
 	}
+}
+
+type bodyLogWriter struct {
+	gin.ResponseWriter
+	body []byte
+}
+
+func (w *bodyLogWriter) Write(b []byte) (int, error) {
+	w.body = append(w.body, b...)
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *bodyLogWriter) Size() int {
+	return len(w.body)
 }

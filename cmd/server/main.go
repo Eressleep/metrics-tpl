@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,7 +13,7 @@ import (
 
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
-	"github.com/Eressleep/metrics-tpl/internal/middleware" // Теперь используется
+	"github.com/Eressleep/metrics-tpl/internal/middleware"
 	"github.com/Eressleep/metrics-tpl/internal/server"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -19,15 +21,12 @@ import (
 )
 
 func main() {
-	// Инициализируем логгер
-	logger, err := zap.NewProduction()
+	logger, err := zap.NewProduction() // Используем production конфигурацию
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Не удалось инициализировать логгер: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Не удалось инициализировать логгер: %v", err)
 	}
-	defer logger.Sync()
+	defer logger.Sync() // Гарантируем сброс буферов при завершении
 
-	// Определяем флаги командной строки
 	serverAddr := flag.String("a", ":8080", "адрес эндпоинта HTTP-сервера")
 
 	flag.Usage = func() {
@@ -35,13 +34,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Флаги:\n")
 		fmt.Fprintf(os.Stderr, "  -a=<ЗНАЧЕНИЕ>   адрес эндпоинта HTTP-сервера (по умолчанию :8080)\n")
 		fmt.Fprintf(os.Stderr, "\nПеременные окружения:\n")
-		fmt.Fprintf(os.Stderr, "  ADDRESS          адрес эндпоинта HTTP-сервера\n")
+		fmt.Fprintf(os.Stderr, "  ADDRESS         адрес эндпоинта HTTP-сервера\n")
 	}
-
 	flag.Parse()
 
-	args := flag.Args()
-	if len(args) > 0 {
+	if args := flag.Args(); len(args) > 0 {
 		logger.Fatal("Неизвестные аргументы", zap.Strings("args", args))
 	}
 
@@ -50,22 +47,16 @@ func main() {
 	memStorage := storage.NewMemStorage()
 	metricsHandler := handlers.NewMetricsHandler(memStorage)
 
-	config := server.NewDefaultConfig()
-	config.Addr = finalAddr
-	config.Mode = gin.DebugMode
-
-	// Создаем роутер вручную и подключаем middleware
-	gin.SetMode(config.Mode)
+	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 
-	// Явно подключаем middleware логирования
-	router.Use(middleware.Logger(logger, middleware.LoggerConfig{
-		SkipPaths: []string{"/ping"},
-	}))
+	router.Use(
+		middleware.Logger(logger, middleware.LoggerConfig{
+			SkipPaths: []string{"/ping"}, // Пропускаем /ping для уменьшения шума
+		}),
+		gin.Recovery(),
+	)
 
-	router.Use(gin.Recovery())
-
-	// Регистрируем обработчики
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
 	router.GET("/value/:type/:name", metricsHandler.GetValue)
 	router.GET("/", metricsHandler.GetAllMetrics)
@@ -74,43 +65,39 @@ func main() {
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
 	})
-
 	router.NoMethod(func(c *gin.Context) {
 		c.JSON(405, gin.H{"error": "method not allowed"})
 	})
 
-	httpSrv := &http.Server{
-		Addr:    config.Addr,
+	httpServer := &http.Server{
+		Addr:    finalAddr,
 		Handler: router,
-	}
-
-	srv := &server.Server{
-		Config:  config,
-		Router:  router,
-		Handler: metricsHandler,
-		HTTPSrv: httpSrv,
-		Logger:  logger,
 	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		if err := srv.Run(); err != nil {
-			logger.Info("Сервер остановлен", zap.Error(err))
+		logger.Info("Сервер запущен", zap.String("address", finalAddr))
+		fmt.Println("Доступные эндпоинты:")
+		fmt.Println("  POST   /update/:type/:name/:value")
+		fmt.Println("  GET    /value/:type/:name")
+		fmt.Println("  GET    /")
+		fmt.Println("  GET    /ping")
+
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Ошибка при запуске сервера", zap.Error(err))
 		}
 	}()
 
-	logger.Info("Сервер запущен", zap.String("address", finalAddr))
-
 	<-quit
-	logger.Info("Получен сигнал завершения")
+	logger.Info("Получен сигнал завершения, начинаем graceful shutdown...")
 
-	logger.Info("Ожидание завершения текущих запросов...")
-	time.Sleep(1 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if err := srv.Stop(); err != nil {
-		logger.Fatal("Ошибка при остановке сервера", zap.Error(err))
+	if err := httpServer.Shutdown(ctx); err != nil {
+		logger.Fatal("Ошибка при завершении сервера", zap.Error(err))
 	}
 
 	logger.Info("Сервер успешно завершил работу")
