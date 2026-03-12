@@ -539,6 +539,7 @@ func TestFileStorage_AtomicSave(t *testing.T) {
 		t.Error("Temporary file was not removed")
 	}
 
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		t.Error("Main file does not exist")
 	}
 }
