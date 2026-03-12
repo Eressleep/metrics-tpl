@@ -18,6 +18,7 @@ type FileStorage struct {
 	stopChan      chan struct{}
 	wg            sync.WaitGroup
 	mu            sync.RWMutex
+	dataMu        sync.RWMutex
 }
 
 func NewFileStorage(filePath string, storeInterval time.Duration, restore bool, logger *zap.Logger) (*FileStorage, error) {
@@ -63,10 +64,11 @@ func (fs *FileStorage) startPeriodicSave() {
 }
 
 func (fs *FileStorage) UpdateCounter(name string, value int64) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
+	fs.dataMu.Lock()
+	err := fs.MemStorage.UpdateCounter(name, value)
+	fs.dataMu.Unlock()
 
-	if err := fs.MemStorage.UpdateCounter(name, value); err != nil {
+	if err != nil {
 		return err
 	}
 
@@ -77,10 +79,11 @@ func (fs *FileStorage) UpdateCounter(name string, value int64) error {
 }
 
 func (fs *FileStorage) UpdateGauge(name string, value float64) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
+	fs.dataMu.Lock()
+	err := fs.MemStorage.UpdateGauge(name, value)
+	fs.dataMu.Unlock()
 
-	if err := fs.MemStorage.UpdateGauge(name, value); err != nil {
+	if err != nil {
 		return err
 	}
 
@@ -90,13 +93,45 @@ func (fs *FileStorage) UpdateGauge(name string, value float64) error {
 	return nil
 }
 
+func (fs *FileStorage) GetCounter(name string) (int64, error) {
+	fs.dataMu.RLock()
+	defer fs.dataMu.RUnlock()
+	return fs.MemStorage.GetCounter(name)
+}
+
+func (fs *FileStorage) GetGauge(name string) (float64, error) {
+	fs.dataMu.RLock()
+	defer fs.dataMu.RUnlock()
+	return fs.MemStorage.GetGauge(name)
+}
+
+func (fs *FileStorage) GetAllGauges() map[string]float64 {
+	fs.dataMu.RLock()
+	defer fs.dataMu.RUnlock()
+	return fs.MemStorage.GetAllGauges()
+}
+
+func (fs *FileStorage) GetAllCounters() map[string]int64 {
+	fs.dataMu.RLock()
+	defer fs.dataMu.RUnlock()
+	return fs.MemStorage.GetAllCounters()
+}
+
 func (fs *FileStorage) saveToFile() error {
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
+	fs.dataMu.RLock()
+	gauges := make(map[string]float64, len(fs.gauges))
+	for k, v := range fs.gauges {
+		gauges[k] = v
+	}
+	counters := make(map[string]int64, len(fs.counters))
+	for k, v := range fs.counters {
+		counters[k] = v
+	}
+	fs.dataMu.RUnlock()
 
 	var metrics []model.Metrics
 
-	for name, value := range fs.gauges {
+	for name, value := range gauges {
 		val := value
 		metrics = append(metrics, model.Metrics{
 			ID:    name,
@@ -105,7 +140,7 @@ func (fs *FileStorage) saveToFile() error {
 		})
 	}
 
-	for name, value := range fs.counters {
+	for name, value := range counters {
 		val := value
 		metrics = append(metrics, model.Metrics{
 			ID:    name,
@@ -113,6 +148,9 @@ func (fs *FileStorage) saveToFile() error {
 			Delta: &val,
 		})
 	}
+
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
 
 	tempFile := fs.filePath + ".tmp"
 	file, err := os.Create(tempFile)
@@ -155,6 +193,9 @@ func (fs *FileStorage) loadFromFile() error {
 	if err := decoder.Decode(&metrics); err != nil {
 		return err
 	}
+
+	fs.dataMu.Lock()
+	defer fs.dataMu.Unlock()
 
 	fs.gauges = make(map[string]float64)
 	fs.counters = make(map[string]int64)
