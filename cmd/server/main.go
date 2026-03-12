@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
@@ -16,6 +17,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const defaultFilePath = "/tmp/metrics-db.json"
+
 func main() {
 	logger, err := zap.NewProduction()
 	if err != nil {
@@ -25,13 +28,22 @@ func main() {
 	defer logger.Sync()
 
 	serverAddr := flag.String("a", ":8080", "адрес эндпоинта HTTP-сервера")
+	storeInterval := flag.Int("i", 300, "интервал сохранения метрик на диск (в секундах, 0 - синхронная запись)")
+	filePath := flag.String("f", defaultFilePath, "путь до файла для сохранения метрик")
+	restore := flag.Bool("r", true, "загружать ранее сохранённые значения из файла при старте")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Использование: %s [флаги]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Флаги:\n")
 		fmt.Fprintf(os.Stderr, "  -a=<ЗНАЧЕНИЕ>   адрес эндпоинта HTTP-сервера (по умолчанию :8080)\n")
+		fmt.Fprintf(os.Stderr, "  -i=<ЗНАЧЕНИЕ>   интервал сохранения метрик на диск в секундах (по умолчанию 300, 0 - синхронная запись)\n")
+		fmt.Fprintf(os.Stderr, "  -f=<ЗНАЧЕНИЕ>   путь до файла для сохранения метрик (по умолчанию %s)\n", defaultFilePath)
+		fmt.Fprintf(os.Stderr, "  -r=<ЗНАЧЕНИЕ>   загружать ранее сохранённые значения из файла (по умолчанию true)\n")
 		fmt.Fprintf(os.Stderr, "\nПеременные окружения:\n")
-		fmt.Fprintf(os.Stderr, "  ADDRESS         адрес эндпоинта HTTP-сервера\n")
+		fmt.Fprintf(os.Stderr, "  ADDRESS          адрес эндпоинта HTTP-сервера\n")
+		fmt.Fprintf(os.Stderr, "  STORE_INTERVAL   интервал сохранения метрик на диск (секунды)\n")
+		fmt.Fprintf(os.Stderr, "  FILE_STORAGE_PATH путь до файла для сохранения метрик\n")
+		fmt.Fprintf(os.Stderr, "  RESTORE          загружать ранее сохранённые значения (true/false)\n")
 	}
 	flag.Parse()
 
@@ -40,8 +52,20 @@ func main() {
 	}
 
 	finalAddr := flags.GetConfigString(serverAddr, "a", "ADDRESS", ":8080")
+	finalStoreInterval := flags.GetConfigInt(storeInterval, "i", "STORE_INTERVAL", 300)
+	finalFilePath := flags.GetConfigString(filePath, "f", "FILE_STORAGE_PATH", defaultFilePath)
+	finalRestore := flags.GetConfigBool(restore, "r", "RESTORE", true)
 
-	memStorage := storage.NewMemStorage()
+	memStorage, err := storage.NewFileStorage(
+		finalFilePath,
+		time.Duration(finalStoreInterval)*time.Second,
+		finalRestore,
+		logger,
+	)
+	if err != nil {
+		logger.Fatal("Не удалось создать хранилище", zap.Error(err))
+	}
+
 	metricsHandler := handlers.NewMetricsHandler(memStorage)
 
 	config := server.NewDefaultConfig()
@@ -81,7 +105,12 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		logger.Info("Сервер запущен", zap.String("address", finalAddr))
+		logger.Info("Сервер запущен",
+			zap.String("address", finalAddr),
+			zap.Int("store_interval", finalStoreInterval),
+			zap.String("file_path", finalFilePath),
+			zap.Bool("restore", finalRestore))
+
 		fmt.Println("Доступные эндпоинты:")
 		fmt.Println("  POST   /update/:type/:name/:value  (text/plain)")
 		fmt.Println("  GET    /value/:type/:name")
@@ -92,6 +121,10 @@ func main() {
 		fmt.Println("\nПоддержка gzip сжатия:")
 		fmt.Println("  - Принимает запросы с Content-Encoding: gzip")
 		fmt.Println("  - Отправляет ответы с Content-Encoding: gzip при наличии Accept-Encoding: gzip")
+		fmt.Println("\nСохранение метрик:")
+		fmt.Printf("  - Интервал сохранения: %d секунд\n", finalStoreInterval)
+		fmt.Printf("  - Файл для сохранения: %s\n", finalFilePath)
+		fmt.Printf("  - Загрузка при старте: %v\n", finalRestore)
 
 		if err := srv.Run(); err != nil {
 			logger.Info("Сервер остановлен", zap.Error(err))
@@ -100,6 +133,10 @@ func main() {
 
 	<-quit
 	logger.Info("Получен сигнал завершения, останавливаем сервер...")
+
+	if err := memStorage.Stop(); err != nil {
+		logger.Error("Ошибка при сохранении метрик", zap.Error(err))
+	}
 
 	if err := srv.Stop(); err != nil {
 		logger.Fatal("Ошибка при остановке сервера", zap.Error(err))

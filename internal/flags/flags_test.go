@@ -78,6 +78,37 @@ func TestGetIntFromEnv(t *testing.T) {
 	}
 }
 
+func TestGetBoolFromEnv(t *testing.T) {
+	setupTest()
+
+	original := os.Getenv("TEST_BOOL")
+	defer os.Setenv("TEST_BOOL", original)
+
+	os.Setenv("TEST_BOOL", "true")
+	result := GetBoolFromEnv("TEST_BOOL", false)
+	if result != true {
+		t.Errorf("Expected true, got %v", result)
+	}
+
+	os.Setenv("TEST_BOOL", "false")
+	result = GetBoolFromEnv("TEST_BOOL", true)
+	if result != false {
+		t.Errorf("Expected false, got %v", result)
+	}
+
+	os.Setenv("TEST_BOOL", "invalid")
+	result = GetBoolFromEnv("TEST_BOOL", true)
+	if result != true {
+		t.Errorf("Expected default true, got %v", result)
+	}
+
+	os.Unsetenv("TEST_BOOL")
+	result = GetBoolFromEnv("TEST_BOOL", true)
+	if result != true {
+		t.Errorf("Expected default true, got %v", result)
+	}
+}
+
 func TestGetConfigString(t *testing.T) {
 	setupTest()
 
@@ -143,5 +174,39 @@ func TestGetConfigInt(t *testing.T) {
 	result = GetConfigInt(testFlag, "test-int", "TEST_INT_CONFIG", 10)
 	if result != 10 {
 		t.Errorf("Expected default 10, got %d", result)
+	}
+}
+
+func TestGetConfigBool(t *testing.T) {
+	setupTest()
+
+	oldEnv := os.Getenv("TEST_BOOL_CONFIG")
+	defer os.Setenv("TEST_BOOL_CONFIG", oldEnv)
+
+	os.Args = []string{"cmd", "-test-bool=true"}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	testFlag := flag.Bool("test-bool", false, "test bool config")
+	flag.Parse()
+
+	result := GetConfigBool(testFlag, "test-bool", "TEST_BOOL_CONFIG", false)
+	if result != true {
+		t.Errorf("Expected true, got %v", result)
+	}
+
+	os.Args = []string{"cmd"}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	testFlag = flag.Bool("test-bool", false, "test bool config")
+	flag.Parse()
+
+	os.Setenv("TEST_BOOL_CONFIG", "true")
+	result = GetConfigBool(testFlag, "test-bool", "TEST_BOOL_CONFIG", false)
+	if result != true {
+		t.Errorf("Expected true, got %v", result)
+	}
+
+	os.Unsetenv("TEST_BOOL_CONFIG")
+	result = GetConfigBool(testFlag, "test-bool", "TEST_BOOL_CONFIG", true)
+	if result != true {
+		t.Errorf("Expected default true, got %v", result)
 	}
 }
