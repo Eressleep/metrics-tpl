@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
+	"github.com/Eressleep/metrics-tpl/internal/middleware"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 type Config struct {
@@ -27,21 +29,28 @@ type Server struct {
 	router  *gin.Engine
 	handler *handlers.MetricsHandler
 	httpSrv *http.Server
+	logger  *zap.Logger
 }
 
 func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
+	logger, _ := zap.NewProduction()
+	return NewWithLogger(config, metricsHandler, logger)
+}
+
+func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logger *zap.Logger) *Server {
 	gin.SetMode(config.Mode)
 
 	router := gin.New()
-	router.Use(gin.Logger())
+
+	router.Use(middleware.Logger(logger, middleware.LoggerConfig{
+		SkipPaths: []string{"/ping"},
+	}))
+
 	router.Use(gin.Recovery())
 
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
-
 	router.GET("/value/:type/:name", metricsHandler.GetValue)
-
 	router.GET("/", metricsHandler.GetAllMetrics)
-
 	router.GET("/ping", metricsHandler.Ping)
 
 	router.NoRoute(func(c *gin.Context) {
@@ -63,22 +72,25 @@ func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
 		router:  router,
 		handler: metricsHandler,
 		httpSrv: httpSrv,
+		logger:  logger,
 	}
 }
 
 func (s *Server) Run() error {
-	fmt.Printf("Starting metrics server on %s...\n", s.config.Addr)
+	s.logger.Info("Starting metrics server",
+		zap.String("address", s.config.Addr))
+
 	fmt.Println("Available endpoints:")
 	fmt.Println("  POST   /update/:type/:name/:value  - Update metric")
 	fmt.Println("  GET    /value/:type/:name          - Get metric value")
-	fmt.Println("  GET    /                            - View all metrics")
-	fmt.Println("  GET    /ping                         - Health check")
+	fmt.Println("  GET    /                           - View all metrics")
+	fmt.Println("  GET    /ping                       - Health check")
 
 	return s.httpSrv.ListenAndServe()
 }
 
 func (s *Server) Stop() error {
-	fmt.Println("Shutting down server...")
+	s.logger.Info("Shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -87,6 +99,6 @@ func (s *Server) Stop() error {
 		return fmt.Errorf("server shutdown failed: %w", err)
 	}
 
-	fmt.Println("Server stopped gracefully")
+	s.logger.Info("Server stopped gracefully")
 	return nil
 }
