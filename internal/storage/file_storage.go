@@ -44,6 +44,10 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool, 
 }
 
 func (fs *FileStorage) startPeriodicSave() {
+	if fs.stopChan == nil {
+		fs.stopChan = make(chan struct{})
+	}
+
 	fs.wg.Add(1)
 	go func() {
 		defer fs.wg.Done()
@@ -217,7 +221,12 @@ func (fs *FileStorage) loadFromFile() error {
 }
 
 func (fs *FileStorage) Stop() error {
-	close(fs.stopChan)
+	select {
+	case <-fs.stopChan:
+	default:
+		close(fs.stopChan)
+	}
+
 	fs.wg.Wait()
 
 	return fs.saveToFile()
