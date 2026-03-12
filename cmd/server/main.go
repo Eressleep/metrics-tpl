@@ -41,7 +41,7 @@ func main() {
 
 	config := server.NewDefaultConfig()
 	config.Addr = finalAddr
-	config.Mode = gin.DebugMode
+	config.Mode = gin.DebugMode // debug
 
 	srv := server.New(config, metricsHandler)
 

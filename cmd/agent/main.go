@@ -37,7 +37,6 @@ func main() {
 		log.Fatalf("неизвестные аргументы: %v", args)
 	}
 
-	// Определяем финальные значения с учетом приоритета используя общие функции
 	finalServerAddr := flags.GetConfigString(serverAddr, "a", "ADDRESS", "localhost:8080")
 	finalReportInterval := flags.GetConfigInt(reportInterval, "r", "REPORT_INTERVAL", 10)
 	finalPollInterval := flags.GetConfigInt(pollInterval, "p", "POLL_INTERVAL", 2)
