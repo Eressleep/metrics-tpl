@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/agent"
-	"github.com/Eressleep/metrics-tpl/internal/flags" // Добавляем импорт
+	"github.com/Eressleep/metrics-tpl/internal/flags"
 )
 
 func main() {

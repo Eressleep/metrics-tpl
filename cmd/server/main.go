@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Eressleep/metrics-tpl/internal/flags" // Добавляем импорт
+	"github.com/Eressleep/metrics-tpl/internal/flags"
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
 	"github.com/Eressleep/metrics-tpl/internal/server"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
