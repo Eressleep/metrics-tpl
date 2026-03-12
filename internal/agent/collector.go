@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/pkg/metrics"
@@ -10,6 +11,7 @@ type Collector struct {
 	metrics      *metrics.Metrics
 	pollInterval time.Duration
 	stopChan     chan struct{}
+	isRunning    atomic.Bool // Флаг для отслеживания состояния
 }
 
 func NewCollector(pollInterval time.Duration) *Collector {
@@ -21,10 +23,19 @@ func NewCollector(pollInterval time.Duration) *Collector {
 }
 
 func (c *Collector) Start() {
+	if c.isRunning.Load() {
+		return // Уже запущен
+	}
+	c.isRunning.Store(true)
+	c.stopChan = make(chan struct{})
 	go c.collectLoop()
 }
 
 func (c *Collector) Stop() {
+	if !c.isRunning.Load() {
+		return // Уже остановлен
+	}
+	c.isRunning.Store(false)
 	close(c.stopChan)
 }
 
@@ -47,9 +58,10 @@ func (c *Collector) collectLoop() {
 }
 
 func (c *Collector) collect() {
+	if !c.isRunning.Load() {
+		return
+	}
 	c.metrics.UpdateRuntime()
-
 	c.metrics.UpdateRandom()
-
 	c.metrics.IncrementPollCount()
 }

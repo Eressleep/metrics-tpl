@@ -54,15 +54,17 @@ func TestCollectorStop(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
+	pollCountBefore := collector.GetMetrics().GetPollCount()
+
 	collector.Stop()
 
-	pollCount1 := collector.GetMetrics().GetPollCount()
 	time.Sleep(100 * time.Millisecond)
-	pollCount2 := collector.GetMetrics().GetPollCount()
 
-	if pollCount2 != pollCount1 {
+	pollCountAfter := collector.GetMetrics().GetPollCount()
+
+	if pollCountAfter != pollCountBefore {
 		t.Errorf("PollCount should not increase after stop: before=%d, after=%d",
-			pollCount1, pollCount2)
+			pollCountBefore, pollCountAfter)
 	}
 }
 

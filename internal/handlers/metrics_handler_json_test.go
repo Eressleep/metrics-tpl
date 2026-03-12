@@ -12,7 +12,7 @@ import (
 	"github.com/mailru/easyjson"
 )
 
-func setupJSONTest() (*gin.Engine, storage.Storage) { // Убрали handler из возвращаемых значений
+func setupJSONTest() (*gin.Engine, storage.Storage) {
 	gin.SetMode(gin.TestMode)
 	store := storage.NewMemStorage()
 	handler := NewMetricsHandler(store)
@@ -25,7 +25,7 @@ func setupJSONTest() (*gin.Engine, storage.Storage) { // Убрали handler и
 }
 
 func TestUpdateJSONGauge(t *testing.T) {
-	router, _ := setupJSONTest() // Игнорируем store, так как он не нужен
+	router, _ := setupJSONTest()
 
 	value := 123.45
 	metric := model.Metrics{

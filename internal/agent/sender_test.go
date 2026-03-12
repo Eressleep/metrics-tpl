@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"compress/gzip"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +38,17 @@ func TestSenderSendMetricJSON(t *testing.T) {
 			t.Errorf("Expected application/json, got %s", r.Header.Get("Content-Type"))
 		}
 
-		body, err := io.ReadAll(r.Body)
+		var bodyReader io.Reader = r.Body
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gzipReader, err := gzip.NewReader(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer gzipReader.Close()
+			bodyReader = gzipReader
+		}
+
+		body, err := io.ReadAll(bodyReader)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,6 +65,7 @@ func TestSenderSendMetricJSON(t *testing.T) {
 
 	collector := NewCollector(1 * time.Second)
 	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
+	sender.useGzip = false // Отключаем gzip для этого теста
 
 	value := 123.45
 	metric := model.Metrics{
@@ -84,7 +96,17 @@ func TestSenderSendAllMetricsJSON(t *testing.T) {
 	var mu sync.Mutex
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
+		var bodyReader io.Reader = r.Body
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gzipReader, err := gzip.NewReader(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer gzipReader.Close()
+			bodyReader = gzipReader
+		}
+
+		body, err := io.ReadAll(bodyReader)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -94,6 +116,7 @@ func TestSenderSendAllMetricsJSON(t *testing.T) {
 		err = easyjson.Unmarshal(body, &metric)
 		if err != nil {
 			t.Errorf("Error unmarshaling JSON: %v", err)
+			return
 		}
 
 		mu.Lock()
@@ -112,6 +135,7 @@ func TestSenderSendAllMetricsJSON(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
+	sender.useGzip = false // Отключаем gzip для теста
 	sender.sendAllMetrics()
 
 	time.Sleep(200 * time.Millisecond)
@@ -119,7 +143,7 @@ func TestSenderSendAllMetricsJSON(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if requestCount < 28 { // 27 gauge метрик + 1 counter
+	if requestCount < 28 {
 		t.Errorf("Expected at least 28 requests, got %d", requestCount)
 	}
 
@@ -136,7 +160,17 @@ func TestSenderSendCounterJSON(t *testing.T) {
 	var mu sync.Mutex
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
+		var bodyReader io.Reader = r.Body
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gzipReader, err := gzip.NewReader(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer gzipReader.Close()
+			bodyReader = gzipReader
+		}
+
+		body, err := io.ReadAll(bodyReader)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -146,6 +180,7 @@ func TestSenderSendCounterJSON(t *testing.T) {
 		err = easyjson.Unmarshal(body, &metric)
 		if err != nil {
 			t.Errorf("Error unmarshaling JSON: %v", err)
+			return
 		}
 
 		mu.Lock()
@@ -158,6 +193,7 @@ func TestSenderSendCounterJSON(t *testing.T) {
 
 	collector := NewCollector(1 * time.Second)
 	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
+	sender.useGzip = false // Отключаем gzip для теста
 
 	pollCount := int64(42)
 	metric := model.Metrics{
@@ -206,6 +242,7 @@ func TestSenderSendWithRetryJSON(t *testing.T) {
 	collector := NewCollector(1 * time.Second)
 	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
 	sender.maxRetries = 3
+	sender.useGzip = false // Отключаем gzip для теста
 
 	value := 123.45
 	metric := model.Metrics{
@@ -231,5 +268,72 @@ func TestSenderSendWithRetryJSON(t *testing.T) {
 
 	if attemptCount != 3 {
 		t.Errorf("Expected 3 attempts, got %d", attemptCount)
+	}
+}
+
+func TestSenderSendMetricJSONWithGzip(t *testing.T) {
+	var receivedMetric model.Metrics
+	var receivedContentEncoding string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedContentEncoding = r.Header.Get("Content-Encoding")
+
+		var bodyReader io.Reader = r.Body
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gzipReader, err := gzip.NewReader(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer gzipReader.Close()
+			bodyReader = gzipReader
+		}
+
+		body, err := io.ReadAll(bodyReader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+
+		err = easyjson.Unmarshal(body, &receivedMetric)
+		if err != nil {
+			t.Errorf("Error unmarshaling JSON: %v", err)
+		}
+
+		if r.Header.Get("Accept-Encoding") != "gzip" {
+			t.Error("Expected Accept-Encoding: gzip")
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	collector := NewCollector(1 * time.Second)
+	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
+	sender.useGzip = true
+
+	value := 123.45
+	metric := model.Metrics{
+		ID:    "test",
+		MType: model.Gauge,
+		Value: &value,
+	}
+
+	err := sender.sendMetricJSON(metric)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if receivedContentEncoding != "gzip" {
+		t.Errorf("Expected Content-Encoding: gzip, got %q", receivedContentEncoding)
+	}
+
+	if receivedMetric.ID != "test" {
+		t.Errorf("Expected ID 'test', got '%s'", receivedMetric.ID)
+	}
+	if receivedMetric.MType != model.Gauge {
+		t.Errorf("Expected MType 'gauge', got '%s'", receivedMetric.MType)
+	}
+	if receivedMetric.Value == nil || *receivedMetric.Value != 123.45 {
+		t.Errorf("Expected Value 123.45, got %v", receivedMetric.Value)
 	}
 }

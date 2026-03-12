@@ -52,6 +52,7 @@ func main() {
 	router := gin.New()
 
 	router.Use(
+		middleware.GzipMiddleware(),
 		middleware.Logger(logger, middleware.LoggerConfig{
 			SkipPaths: []string{"/ping"},
 		}),
@@ -85,9 +86,12 @@ func main() {
 		fmt.Println("  POST   /update/:type/:name/:value  (text/plain)")
 		fmt.Println("  GET    /value/:type/:name")
 		fmt.Println("  POST   /update                      (application/json)")
-		fmt.Println("  POST   /value                        (application/json)")
+		fmt.Println("  POST   /value                       (application/json)")
 		fmt.Println("  GET    /")
 		fmt.Println("  GET    /ping")
+		fmt.Println("\nПоддержка gzip сжатия:")
+		fmt.Println("  - Принимает запросы с Content-Encoding: gzip")
+		fmt.Println("  - Отправляет ответы с Content-Encoding: gzip при наличии Accept-Encoding: gzip")
 
 		if err := srv.Run(); err != nil {
 			logger.Info("Сервер остановлен", zap.Error(err))

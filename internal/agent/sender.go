@@ -2,7 +2,9 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -18,6 +20,7 @@ type Sender struct {
 	stopChan       chan struct{}
 	maxRetries     int
 	retryDelay     time.Duration
+	useGzip        bool // флаг для включения gzip сжатия
 }
 
 func NewSender(serverAddr string, reportInterval time.Duration, collector *Collector) *Sender {
@@ -29,6 +32,7 @@ func NewSender(serverAddr string, reportInterval time.Duration, collector *Colle
 		stopChan:       make(chan struct{}),
 		maxRetries:     3,
 		retryDelay:     1 * time.Second,
+		useGzip:        true, // по умолчанию используем gzip
 	}
 }
 
@@ -96,6 +100,22 @@ func (s *Sender) sendMetricWithRetry(metric model.Metrics) {
 	}
 }
 
+func compressData(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buf)
+
+	_, err := gzipWriter.Write(data)
+	if err != nil {
+		return nil, fmt.Errorf("error compressing data: %w", err)
+	}
+
+	if err := gzipWriter.Close(); err != nil {
+		return nil, fmt.Errorf("error closing gzip writer: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
 func (s *Sender) sendMetricJSON(metric model.Metrics) error {
 	url := fmt.Sprintf("http://%s/update", s.serverAddr)
 
@@ -104,18 +124,46 @@ func (s *Sender) sendMetricJSON(metric model.Metrics) error {
 		return fmt.Errorf("error marshaling metric %s: %w", metric.ID, err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(data))
+	var bodyReader io.Reader
+	var contentEncoding string
+
+	if s.useGzip {
+		compressedData, err := compressData(data)
+		if err != nil {
+			return fmt.Errorf("error compressing metric %s: %w", metric.ID, err)
+		}
+		bodyReader = bytes.NewReader(compressedData)
+		contentEncoding = "gzip"
+	} else {
+		bodyReader = bytes.NewReader(data)
+		contentEncoding = ""
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bodyReader)
 	if err != nil {
 		return fmt.Errorf("error creating request for %s: %w", metric.ID, err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if contentEncoding != "" {
+		req.Header.Set("Content-Encoding", contentEncoding)
+	}
+	req.Header.Set("Accept-Encoding", "gzip")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("error sending metric %s: %w", metric.ID, err)
 	}
 	defer resp.Body.Close()
+
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gzipReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return fmt.Errorf("error creating gzip reader for response: %w", err)
+		}
+		defer gzipReader.Close()
+		resp.Body = io.NopCloser(gzipReader)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code for %s: %d", metric.ID, resp.StatusCode)
