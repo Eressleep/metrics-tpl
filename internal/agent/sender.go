@@ -1,9 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/Eressleep/metrics-tpl/internal/model"
+	"github.com/mailru/easyjson"
 )
 
 type Sender struct {
@@ -54,13 +58,24 @@ func (s *Sender) sendAllMetrics() {
 	metrics := s.collector.GetMetrics()
 
 	for name, value := range metrics.GetAllGauges() {
-		go s.sendWithRetry("gauge", name, value)
+		metric := model.Metrics{
+			ID:    name,
+			MType: model.Gauge,
+			Value: &value,
+		}
+		go s.sendMetricWithRetry(metric)
 	}
 
-	go s.sendWithRetry("counter", "PollCount", metrics.GetPollCount())
+	pollCount := metrics.GetPollCount()
+	metric := model.Metrics{
+		ID:    "PollCount",
+		MType: model.Counter,
+		Delta: &pollCount,
+	}
+	go s.sendMetricWithRetry(metric)
 }
 
-func (s *Sender) sendWithRetry(metricType, name string, value interface{}) {
+func (s *Sender) sendMetricWithRetry(metric model.Metrics) {
 	var lastErr error
 	for i := 0; i < s.maxRetries; i++ {
 		if i > 0 {
@@ -68,38 +83,42 @@ func (s *Sender) sendWithRetry(metricType, name string, value interface{}) {
 			time.Sleep(delay)
 		}
 
-		err := s.sendMetric(metricType, name, value)
+		err := s.sendMetricJSON(metric)
 		if err == nil {
 			return
 		}
 		lastErr = err
-
 	}
 
 	if lastErr != nil {
 		fmt.Printf("Failed to send metric %s after %d retries: %v\n",
-			name, s.maxRetries, lastErr)
+			metric.ID, s.maxRetries, lastErr)
 	}
 }
 
-func (s *Sender) sendMetric(metricType, name string, value interface{}) error {
-	url := fmt.Sprintf("http://%s/update/%s/%s/%v", s.serverAddr, metricType, name, value)
+func (s *Sender) sendMetricJSON(metric model.Metrics) error {
+	url := fmt.Sprintf("http://%s/update", s.serverAddr)
 
-	req, err := http.NewRequest(http.MethodPost, url, nil)
+	data, err := easyjson.Marshal(&metric)
 	if err != nil {
-		return fmt.Errorf("error creating request for %s: %w", name, err)
+		return fmt.Errorf("error marshaling metric %s: %w", metric.ID, err)
 	}
 
-	req.Header.Set("Content-Type", "text/plain")
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(data))
+	if err != nil {
+		return fmt.Errorf("error creating request for %s: %w", metric.ID, err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("error sending metric %s: %w", name, err)
+		return fmt.Errorf("error sending metric %s: %w", metric.ID, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code for %s: %d", name, resp.StatusCode)
+		return fmt.Errorf("unexpected status code for %s: %d", metric.ID, resp.StatusCode)
 	}
 
 	return nil

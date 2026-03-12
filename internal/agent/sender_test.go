@@ -1,13 +1,18 @@
 package agent
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/Eressleep/metrics-tpl/internal/model"
+	"github.com/mailru/easyjson"
 )
 
-func TestSenderStartStop(t *testing.T) {
+func TestSenderJSONStartStop(t *testing.T) {
 	collector := NewCollector(100 * time.Millisecond)
 	sender := NewSender("localhost:8080", 100*time.Millisecond, collector)
 
@@ -16,19 +21,31 @@ func TestSenderStartStop(t *testing.T) {
 	sender.Stop()
 }
 
-func TestSenderSendMetric(t *testing.T) {
+func TestSenderSendMetricJSON(t *testing.T) {
+	var receivedMetric model.Metrics
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("Expected POST, got %s", r.Method)
 		}
 
-		if r.Header.Get("Content-Type") != "text/plain" {
-			t.Errorf("Expected text/plain, got %s", r.Header.Get("Content-Type"))
+		if r.URL.Path != "/update" {
+			t.Errorf("Expected path /update, got %s", r.URL.Path)
 		}
 
-		expectedPath := "/update/gauge/test/123.45"
-		if r.URL.Path != expectedPath {
-			t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("Expected application/json, got %s", r.Header.Get("Content-Type"))
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+
+		err = easyjson.Unmarshal(body, &receivedMetric)
+		if err != nil {
+			t.Errorf("Error unmarshaling JSON: %v", err)
 		}
 
 		w.WriteHeader(http.StatusOK)
@@ -38,19 +55,52 @@ func TestSenderSendMetric(t *testing.T) {
 	collector := NewCollector(1 * time.Second)
 	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
 
-	err := sender.sendMetric("gauge", "test", 123.45)
+	value := 123.45
+	metric := model.Metrics{
+		ID:    "test",
+		MType: model.Gauge,
+		Value: &value,
+	}
+
+	err := sender.sendMetricJSON(metric)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
+
+	if receivedMetric.ID != "test" {
+		t.Errorf("Expected ID 'test', got '%s'", receivedMetric.ID)
+	}
+	if receivedMetric.MType != model.Gauge {
+		t.Errorf("Expected MType 'gauge', got '%s'", receivedMetric.MType)
+	}
+	if receivedMetric.Value == nil || *receivedMetric.Value != 123.45 {
+		t.Errorf("Expected Value 123.45, got %v", receivedMetric.Value)
+	}
 }
 
-func TestSenderSendAllMetrics(t *testing.T) {
+func TestSenderSendAllMetricsJSON(t *testing.T) {
 	requestCount := 0
-	requestChan := make(chan int, 100)
+	receivedMetrics := make(map[string]bool)
+	var mu sync.Mutex
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+
+		var metric model.Metrics
+		err = easyjson.Unmarshal(body, &metric)
+		if err != nil {
+			t.Errorf("Error unmarshaling JSON: %v", err)
+		}
+
+		mu.Lock()
+		receivedMetrics[metric.ID] = true
 		requestCount++
-		requestChan <- requestCount
+		mu.Unlock()
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -64,19 +114,88 @@ func TestSenderSendAllMetrics(t *testing.T) {
 	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
 	sender.sendAllMetrics()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
-	if requestCount < 10 {
-		t.Errorf("Expected at least 10 requests, got %d", requestCount)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if requestCount < 28 { // 27 gauge метрик + 1 counter
+		t.Errorf("Expected at least 28 requests, got %d", requestCount)
+	}
+
+	expectedMetrics := []string{"Alloc", "HeapAlloc", "Sys", "PollCount"}
+	for _, name := range expectedMetrics {
+		if !receivedMetrics[name] {
+			t.Errorf("Metric %s was not received", name)
+		}
 	}
 }
 
-func TestSenderSendWithRetry(t *testing.T) {
-	attemptCount := 0
+func TestSenderSendCounterJSON(t *testing.T) {
+	var receivedMetric model.Metrics
+	var mu sync.Mutex
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+
+		var metric model.Metrics
+		err = easyjson.Unmarshal(body, &metric)
+		if err != nil {
+			t.Errorf("Error unmarshaling JSON: %v", err)
+		}
+
+		mu.Lock()
+		receivedMetric = metric
+		mu.Unlock()
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	collector := NewCollector(1 * time.Second)
+	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
+
+	pollCount := int64(42)
+	metric := model.Metrics{
+		ID:    "PollCount",
+		MType: model.Counter,
+		Delta: &pollCount,
+	}
+
+	err := sender.sendMetricJSON(metric)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if receivedMetric.ID != "PollCount" {
+		t.Errorf("Expected ID 'PollCount', got '%s'", receivedMetric.ID)
+	}
+	if receivedMetric.MType != model.Counter {
+		t.Errorf("Expected MType 'counter', got '%s'", receivedMetric.MType)
+	}
+	if receivedMetric.Delta == nil || *receivedMetric.Delta != 42 {
+		t.Errorf("Expected Delta 42, got %v", receivedMetric.Delta)
+	}
+}
+
+func TestSenderSendWithRetryJSON(t *testing.T) {
+	attemptCount := 0
+	var mu sync.Mutex
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		attemptCount++
-		if attemptCount < 3 {
+		currentAttempt := attemptCount
+		mu.Unlock()
+
+		if currentAttempt < 3 {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -88,9 +207,16 @@ func TestSenderSendWithRetry(t *testing.T) {
 	sender := NewSender(server.Listener.Addr().String(), 1*time.Second, collector)
 	sender.maxRetries = 3
 
+	value := 123.45
+	metric := model.Metrics{
+		ID:    "test",
+		MType: model.Gauge,
+		Value: &value,
+	}
+
 	done := make(chan bool)
 	go func() {
-		sender.sendWithRetry("gauge", "test", 123.45)
+		sender.sendMetricWithRetry(metric)
 		done <- true
 	}()
 
@@ -99,6 +225,9 @@ func TestSenderSendWithRetry(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Test timed out")
 	}
+
+	mu.Lock()
+	defer mu.Unlock()
 
 	if attemptCount != 3 {
 		t.Errorf("Expected 3 attempts, got %d", attemptCount)

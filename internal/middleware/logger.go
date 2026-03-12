@@ -32,7 +32,7 @@ func Logger(logger *zap.Logger, config LoggerConfig) gin.HandlerFunc {
 
 		latency := time.Since(startTime)
 		statusCode := c.Writer.Status()
-		contentLength := blw.Size() // Размер ответа в байтах
+		contentLength := blw.Size()
 
 		path := c.Request.URL.Path
 		if raw := c.Request.URL.RawQuery; raw != "" {

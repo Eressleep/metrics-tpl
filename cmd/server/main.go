@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	_ "time"
 
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
@@ -61,6 +60,10 @@ func main() {
 
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
 	router.GET("/value/:type/:name", metricsHandler.GetValue)
+
+	router.POST("/update", metricsHandler.UpdateJSON)
+	router.POST("/value", metricsHandler.GetValueJSON)
+
 	router.GET("/", metricsHandler.GetAllMetrics)
 	router.GET("/ping", metricsHandler.Ping)
 
@@ -79,8 +82,10 @@ func main() {
 	go func() {
 		logger.Info("Сервер запущен", zap.String("address", finalAddr))
 		fmt.Println("Доступные эндпоинты:")
-		fmt.Println("  POST   /update/:type/:name/:value")
+		fmt.Println("  POST   /update/:type/:name/:value  (text/plain)")
 		fmt.Println("  GET    /value/:type/:name")
+		fmt.Println("  POST   /update                      (application/json)")
+		fmt.Println("  POST   /value                        (application/json)")
 		fmt.Println("  GET    /")
 		fmt.Println("  GET    /ping")
 
