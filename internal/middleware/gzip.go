@@ -37,11 +37,9 @@ func (g *gzipWriter) Flush() {
 			return
 		}
 
-		// Устанавливаем заголовки
 		g.ResponseWriter.Header().Set("Content-Encoding", "gzip")
 		g.ResponseWriter.Header().Set("Vary", "Accept-Encoding")
 
-		// Отправляем сжатые данные
 		g.ResponseWriter.Write(compressedData)
 		g.buffer.Reset()
 	}
