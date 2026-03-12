@@ -37,9 +37,11 @@ func (g *gzipWriter) Flush() {
 			return
 		}
 
+		// Устанавливаем заголовки
 		g.ResponseWriter.Header().Set("Content-Encoding", "gzip")
 		g.ResponseWriter.Header().Set("Vary", "Accept-Encoding")
 
+		// Отправляем сжатые данные
 		g.ResponseWriter.Write(compressedData)
 		g.buffer.Reset()
 	}
@@ -87,10 +89,7 @@ func GzipMiddleware() gin.HandlerFunc {
 			c.Request.ContentLength = int64(len(decompressed))
 		}
 
-		if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
-			c.Next()
-			return
-		}
+		acceptsGzip := strings.Contains(c.GetHeader("Accept-Encoding"), "gzip")
 
 		buffer := &bytes.Buffer{}
 		gzWriter := &gzipWriter{
@@ -104,11 +103,17 @@ func GzipMiddleware() gin.HandlerFunc {
 		c.Next()
 
 		contentType := c.Writer.Header().Get("Content-Type")
-		if strings.Contains(contentType, "application/json") ||
-			strings.Contains(contentType, "text/html") {
+		shouldCompress := acceptsGzip &&
+			(strings.Contains(contentType, "application/json") ||
+				strings.Contains(contentType, "text/html"))
+
+		if shouldCompress && buffer.Len() > 0 {
 			gzWriter.Flush()
 		} else {
-			c.Writer.Write(gzWriter.buffer.Bytes())
+			c.Writer = gzWriter.ResponseWriter
+			if buffer.Len() > 0 {
+				c.Writer.Write(buffer.Bytes())
+			}
 		}
 	}
 }

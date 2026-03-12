@@ -77,6 +77,31 @@ func TestGzipMiddlewareNoCompressForUnsupportedContentType(t *testing.T) {
 	}
 }
 
+func TestGzipMiddlewareNoCompressWhenClientDoesNotSupportGzip(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(GzipMiddleware())
+
+	router.GET("/test", func(c *gin.Context) {
+		c.Header("Content-Type", "application/json")
+		c.String(http.StatusOK, `{"message":"hello world"}`)
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Header().Get("Content-Encoding") == "gzip" {
+		t.Error("Should not compress when client doesn't support gzip")
+	}
+
+	expected := `{"message":"hello world"}`
+	if w.Body.String() != expected {
+		t.Errorf("Expected %q, got %q", expected, w.Body.String())
+	}
+}
+
 func TestGzipMiddlewareDecompressRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
