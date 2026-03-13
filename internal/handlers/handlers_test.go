@@ -96,8 +96,8 @@ func TestResponseWriterHelper_JSON(t *testing.T) {
 			name:       "complex data structure",
 			statusCode: http.StatusOK,
 			data: struct {
-				Name  string `json:"name"`
-				Value int    `json:"value"`
+				Name  string   `json:"name"`
+				Value int      `json:"value"`
 				Tags  []string `json:"tags"`
 			}{
 				Name:  "test",
@@ -278,3 +278,4 @@ func ExampleResponseWriterHelper_Error() {
 	w := httptest.NewRecorder()
 
 	helper.Error(w, http.StatusNotFound, "resource not found")
+}
