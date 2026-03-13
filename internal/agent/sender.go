@@ -1,9 +1,15 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
+
+	"github.com/Eressleep/metrics-tpl/internal/model"
+	"github.com/mailru/easyjson"
 )
 
 type Sender struct {
@@ -14,6 +20,7 @@ type Sender struct {
 	stopChan       chan struct{}
 	maxRetries     int
 	retryDelay     time.Duration
+	useGzip        bool // флаг для включения gzip сжатия
 }
 
 func NewSender(serverAddr string, reportInterval time.Duration, collector *Collector) *Sender {
@@ -25,6 +32,7 @@ func NewSender(serverAddr string, reportInterval time.Duration, collector *Colle
 		stopChan:       make(chan struct{}),
 		maxRetries:     3,
 		retryDelay:     1 * time.Second,
+		useGzip:        true, // по умолчанию используем gzip
 	}
 }
 
@@ -54,13 +62,24 @@ func (s *Sender) sendAllMetrics() {
 	metrics := s.collector.GetMetrics()
 
 	for name, value := range metrics.GetAllGauges() {
-		go s.sendWithRetry("gauge", name, value)
+		metric := model.Metrics{
+			ID:    name,
+			MType: model.Gauge,
+			Value: &value,
+		}
+		go s.sendMetricWithRetry(metric)
 	}
 
-	go s.sendWithRetry("counter", "PollCount", metrics.GetPollCount())
+	pollCount := metrics.GetPollCount()
+	metric := model.Metrics{
+		ID:    "PollCount",
+		MType: model.Counter,
+		Delta: &pollCount,
+	}
+	go s.sendMetricWithRetry(metric)
 }
 
-func (s *Sender) sendWithRetry(metricType, name string, value interface{}) {
+func (s *Sender) sendMetricWithRetry(metric model.Metrics) {
 	var lastErr error
 	for i := 0; i < s.maxRetries; i++ {
 		if i > 0 {
@@ -68,38 +87,86 @@ func (s *Sender) sendWithRetry(metricType, name string, value interface{}) {
 			time.Sleep(delay)
 		}
 
-		err := s.sendMetric(metricType, name, value)
+		err := s.sendMetricJSON(metric)
 		if err == nil {
 			return
 		}
 		lastErr = err
-
 	}
 
 	if lastErr != nil {
 		fmt.Printf("Failed to send metric %s after %d retries: %v\n",
-			name, s.maxRetries, lastErr)
+			metric.ID, s.maxRetries, lastErr)
 	}
 }
 
-func (s *Sender) sendMetric(metricType, name string, value interface{}) error {
-	url := fmt.Sprintf("http://%s/update/%s/%s/%v", s.serverAddr, metricType, name, value)
+func compressData(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buf)
 
-	req, err := http.NewRequest(http.MethodPost, url, nil)
+	_, err := gzipWriter.Write(data)
 	if err != nil {
-		return fmt.Errorf("error creating request for %s: %w", name, err)
+		return nil, fmt.Errorf("error compressing data: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "text/plain")
+	if err := gzipWriter.Close(); err != nil {
+		return nil, fmt.Errorf("error closing gzip writer: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (s *Sender) sendMetricJSON(metric model.Metrics) error {
+	url := fmt.Sprintf("http://%s/update", s.serverAddr)
+
+	data, err := easyjson.Marshal(&metric)
+	if err != nil {
+		return fmt.Errorf("error marshaling metric %s: %w", metric.ID, err)
+	}
+
+	var bodyReader io.Reader
+	var contentEncoding string
+
+	if s.useGzip {
+		compressedData, err := compressData(data)
+		if err != nil {
+			return fmt.Errorf("error compressing metric %s: %w", metric.ID, err)
+		}
+		bodyReader = bytes.NewReader(compressedData)
+		contentEncoding = "gzip"
+	} else {
+		bodyReader = bytes.NewReader(data)
+		contentEncoding = ""
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bodyReader)
+	if err != nil {
+		return fmt.Errorf("error creating request for %s: %w", metric.ID, err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if contentEncoding != "" {
+		req.Header.Set("Content-Encoding", contentEncoding)
+	}
+	req.Header.Set("Accept-Encoding", "gzip")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("error sending metric %s: %w", name, err)
+		return fmt.Errorf("error sending metric %s: %w", metric.ID, err)
 	}
 	defer resp.Body.Close()
 
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gzipReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return fmt.Errorf("error creating gzip reader for response: %w", err)
+		}
+		defer gzipReader.Close()
+		resp.Body = io.NopCloser(gzipReader)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code for %s: %d", name, resp.StatusCode)
+		return fmt.Errorf("unexpected status code for %s: %d", metric.ID, resp.StatusCode)
 	}
 
 	return nil

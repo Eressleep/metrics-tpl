@@ -2,12 +2,15 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
 
+	"github.com/Eressleep/metrics-tpl/internal/model"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
 	"github.com/gin-gonic/gin"
+	"github.com/mailru/easyjson"
 )
 
 func isValidMetricName(name string) bool {
@@ -26,6 +29,145 @@ func NewMetricsHandler(storage storage.Storage) *MetricsHandler {
 	return &MetricsHandler{
 		storage: storage,
 	}
+}
+
+func (h *MetricsHandler) UpdateJSON(c *gin.Context) {
+	if c.GetHeader("Content-Type") != "application/json" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Content-Type must be application/json"})
+		return
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
+		return
+	}
+	defer c.Request.Body.Close()
+
+	var metric model.Metrics
+	if err := easyjson.Unmarshal(body, &metric); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON format: " + err.Error()})
+		return
+	}
+
+	if metric.ID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "metric ID is required"})
+		return
+	}
+
+	if !isValidMetricName(metric.ID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric name format"})
+		return
+	}
+
+	if metric.MType != model.Counter && metric.MType != model.Gauge {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unknown metric type: %s", metric.MType)})
+		return
+	}
+
+	switch metric.MType {
+	case model.Counter:
+		if metric.Delta == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "delta is required for counter metric"})
+			return
+		}
+		if err := h.storage.UpdateCounter(metric.ID, *metric.Delta); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if value, err := h.storage.GetCounter(metric.ID); err == nil {
+			metric.Delta = &value
+		}
+
+	case model.Gauge:
+		if metric.Value == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "value is required for gauge metric"})
+			return
+		}
+		if err := h.storage.UpdateGauge(metric.ID, *metric.Value); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if value, err := h.storage.GetGauge(metric.ID); err == nil {
+			metric.Value = &value
+		}
+	}
+
+	responseData, err := easyjson.Marshal(&metric)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode response"})
+		return
+	}
+
+	c.Data(http.StatusOK, "application/json", responseData)
+}
+
+func (h *MetricsHandler) GetValueJSON(c *gin.Context) {
+	if c.GetHeader("Content-Type") != "application/json" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Content-Type must be application/json"})
+		return
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
+		return
+	}
+	defer c.Request.Body.Close()
+
+	var request model.Metrics
+	if err := easyjson.Unmarshal(body, &request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON format: " + err.Error()})
+		return
+	}
+
+	if request.ID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "metric ID is required"})
+		return
+	}
+
+	if !isValidMetricName(request.ID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric name format"})
+		return
+	}
+
+	if request.MType != model.Counter && request.MType != model.Gauge {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unknown metric type: %s", request.MType)})
+		return
+	}
+
+	response := model.Metrics{
+		ID:    request.ID,
+		MType: request.MType,
+	}
+
+	switch request.MType {
+	case model.Counter:
+		value, err := h.storage.GetCounter(request.ID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("counter %s not found", request.ID)})
+			return
+		}
+		response.Delta = &value
+
+	case model.Gauge:
+		value, err := h.storage.GetGauge(request.ID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("gauge %s not found", request.ID)})
+			return
+		}
+		response.Value = &value
+	}
+
+	responseData, err := easyjson.Marshal(&response)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode response"})
+		return
+	}
+
+	c.Data(http.StatusOK, "application/json", responseData)
 }
 
 func (h *MetricsHandler) Update(c *gin.Context) {
@@ -55,12 +197,12 @@ func (h *MetricsHandler) Update(c *gin.Context) {
 	}
 
 	switch metricType {
-	case "counter":
+	case model.Counter:
 		if err := h.handleCounter(metricName, metricValue); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-	case "gauge":
+	case model.Gauge:
 		if err := h.handleGauge(metricName, metricValue); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -88,7 +230,7 @@ func (h *MetricsHandler) GetValue(c *gin.Context) {
 	}
 
 	switch metricType {
-	case "counter":
+	case model.Counter:
 		value, err := h.storage.GetCounter(metricName)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("counter %s not found", metricName)})
@@ -96,7 +238,7 @@ func (h *MetricsHandler) GetValue(c *gin.Context) {
 		}
 		c.String(http.StatusOK, "%d", value)
 
-	case "gauge":
+	case model.Gauge:
 		value, err := h.storage.GetGauge(metricName)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("gauge %s not found", metricName)})
@@ -133,7 +275,6 @@ func (h *MetricsHandler) GetAllMetrics(c *gin.Context) {
 	html += fmt.Sprintf("<p><strong>Total Metrics:</strong> %d</p>", len(gauges)+len(counters))
 	html += "</div>"
 
-	// Gauges
 	html += "<h2>📈 Gauge Metrics</h2>"
 	if len(gauges) > 0 {
 		html += "<table><tr><th>Metric Name</th><th>Value</th></tr>"
@@ -145,7 +286,6 @@ func (h *MetricsHandler) GetAllMetrics(c *gin.Context) {
 		html += "<p>No gauge metrics available</p>"
 	}
 
-	// Counters
 	html += "<h2>🔢 Counter Metrics</h2>"
 	if len(counters) > 0 {
 		html += "<table><tr><th>Metric Name</th><th>Value</th></tr>"
@@ -178,6 +318,7 @@ func (h *MetricsHandler) handleGauge(name, valueStr string) error {
 	}
 	return h.storage.UpdateGauge(name, value)
 }
+
 func (h *MetricsHandler) Ping(c *gin.Context) {
 	c.String(http.StatusOK, "pong")
 }

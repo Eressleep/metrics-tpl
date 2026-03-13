@@ -8,11 +8,12 @@ import (
 
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 type Config struct {
 	Addr string
-	Mode string // "debug" или "release"
+	Mode string
 }
 
 func NewDefaultConfig() *Config {
@@ -27,28 +28,29 @@ type Server struct {
 	router  *gin.Engine
 	handler *handlers.MetricsHandler
 	httpSrv *http.Server
+	logger  *zap.Logger
 }
 
 func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
+	logger, _ := zap.NewProduction()
+	return NewWithLogger(config, metricsHandler, logger)
+}
+
+func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logger *zap.Logger) *Server {
 	gin.SetMode(config.Mode)
 
 	router := gin.New()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
+	router.HandleMethodNotAllowed = true // Включаем поддержку 405 Method Not Allowed
+	router.Use(gin.Logger(), gin.Recovery())
 
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
-
 	router.GET("/value/:type/:name", metricsHandler.GetValue)
-
 	router.GET("/", metricsHandler.GetAllMetrics)
-
 	router.GET("/ping", metricsHandler.Ping)
 
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
 	})
-
-	router.HandleMethodNotAllowed = true
 	router.NoMethod(func(c *gin.Context) {
 		c.JSON(405, gin.H{"error": "method not allowed"})
 	})
@@ -63,11 +65,38 @@ func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
 		router:  router,
 		handler: metricsHandler,
 		httpSrv: httpSrv,
+		logger:  logger,
+	}
+}
+
+func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, router *gin.Engine, logger *zap.Logger) *Server {
+	gin.SetMode(config.Mode)
+
+	if router == nil {
+		return NewWithLogger(config, metricsHandler, logger)
+	}
+
+	// Убедимся, что включена поддержка 405 даже в кастомном роутере
+	router.HandleMethodNotAllowed = true
+
+	httpSrv := &http.Server{
+		Addr:    config.Addr,
+		Handler: router,
+	}
+
+	return &Server{
+		config:  config,
+		router:  router,
+		handler: metricsHandler,
+		httpSrv: httpSrv,
+		logger:  logger,
 	}
 }
 
 func (s *Server) Run() error {
-	fmt.Printf("Starting metrics server on %s...\n", s.config.Addr)
+	s.logger.Info("Starting metrics server",
+		zap.String("address", s.config.Addr))
+
 	fmt.Println("Available endpoints:")
 	fmt.Println("  POST   /update/:type/:name/:value  - Update metric")
 	fmt.Println("  GET    /value/:type/:name          - Get metric value")
@@ -78,7 +107,7 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) Stop() error {
-	fmt.Println("Shutting down server...")
+	s.logger.Info("Shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -87,6 +116,14 @@ func (s *Server) Stop() error {
 		return fmt.Errorf("server shutdown failed: %w", err)
 	}
 
-	fmt.Println("Server stopped gracefully")
+	s.logger.Info("Server stopped gracefully")
 	return nil
+}
+
+func (s *Server) GetRouter() *gin.Engine {
+	return s.router
+}
+
+func (s *Server) GetLogger() *zap.Logger {
+	return s.logger
 }
