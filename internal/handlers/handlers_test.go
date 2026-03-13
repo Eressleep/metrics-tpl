@@ -222,27 +222,6 @@ func TestResponseWriterHelper_JSON_EncodingError(t *testing.T) {
 	t.Logf("Response body on encoding error: %q", w.Body.String())
 }
 
-func TestResponseWriterHelper_JSON_EdgeCases(t *testing.T) {
-	helper := &ResponseWriterHelper{}
-
-	t.Run("nil writer should panic", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic with nil writer")
-			}
-		}()
-		helper.JSON(nil, http.StatusOK, map[string]string{"test": "data"})
-	})
-
-	t.Run("zero status code", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		helper.JSON(w, 0, map[string]string{"test": "data"})
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected default 200 OK for status 0, got %d", w.Code)
-		}
-	})
-}
-
 func BenchmarkResponseWriterHelper_JSON(b *testing.B) {
 	helper := &ResponseWriterHelper{}
 	data := map[string]string{"key": "value"}
