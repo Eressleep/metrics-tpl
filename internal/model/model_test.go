@@ -280,6 +280,7 @@ func TestMetrics_TypeSafety(t *testing.T) {
 		Delta: func() *int64 { v := int64(42); return &v }(),
 	}
 
+	if gaugeMetric.Value == nil {
 		t.Error("Gauge metric should have Value")
 	}
 	if gaugeMetric.Delta != nil {
