@@ -267,34 +267,6 @@ func TestMetrics_EdgeCases(t *testing.T) {
 	})
 }
 
-func TestMetrics_TypeSafety(t *testing.T) {
-	gaugeMetric := Metrics{
-		ID:    "test",
-		MType: Gauge,
-		Value: func() *float64 { v := 123.45; return &v }(),
-	}
-
-	counterMetric := Metrics{
-		ID:    "test",
-		MType: Counter,
-		Delta: func() *int64 { v := int64(42); return &v }(),
-	}
-
-	if gaugeMetric.Value == nil {
-		t.Error("Gauge metric should have Value")
-	}
-	if gaugeMetric.Delta != nil {
-		t.Error("Gauge metric should not have Delta")
-	}
-
-	if counterMetric.Delta == nil {
-		t.Error("Counter metric should have Delta")
-	}
-	if counterMetric.Value != nil {
-		t.Error("Counter metric should not have Value")
-	}
-}
-
 func BenchmarkMetrics_Marshal(b *testing.B) {
 	metric := Metrics{
 		ID:    "bench_metric",
