@@ -365,8 +365,16 @@ func TestServerShutdownTimeout(t *testing.T) {
 	ts := httptest.NewServer(server.router)
 	defer ts.Close()
 
+	done := make(chan bool)
 	go func() {
-		http.Get(ts.URL + "/block")
+		resp, err := http.Get(ts.URL + "/block")
+		if err != nil {
+			t.Errorf("Request failed: %v", err)
+			done <- false
+			return
+		}
+		defer resp.Body.Close() // <-- ВАЖНО: закрываем тело ответа
+		done <- true
 	}()
 
 	time.Sleep(100 * time.Millisecond)
@@ -379,6 +387,7 @@ func TestServerShutdownTimeout(t *testing.T) {
 		t.Errorf("Expected deadline exceeded or nil, got %v", err)
 	}
 
+	<-done
 	logger.Info("Shutdown test complete")
 }
 
