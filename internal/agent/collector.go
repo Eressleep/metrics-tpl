@@ -32,11 +32,11 @@ func (c *Collector) Start() {
 }
 
 func (c *Collector) Stop() {
-	if !c.isRunning.Load() {
-		return // Уже остановлен
+	if !c.isRunning.CompareAndSwap(true, false) {
+		return
 	}
-	c.isRunning.Store(false)
 	close(c.stopChan)
+	time.Sleep(10 * time.Millisecond)
 }
 
 func (c *Collector) GetMetrics() *metrics.Metrics {
