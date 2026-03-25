@@ -250,7 +250,7 @@ func (s *DBStorage) GetGauge(name string) (float64, error) {
 	return value, nil
 }
 
-func (s *DBStorage) GetAllGauges() (map[string]float64, error) {
+func (s *DBStorage) GetAllGauges() map[string]float64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -270,7 +270,8 @@ func (s *DBStorage) GetAllGauges() (map[string]float64, error) {
 	}, nil)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get all gauges: %w", err)
+		s.logger.Error("Failed to get all gauges", zap.Error(err))
+		return result
 	}
 	defer rows.Close()
 
@@ -278,19 +279,20 @@ func (s *DBStorage) GetAllGauges() (map[string]float64, error) {
 		var name string
 		var value float64
 		if err := rows.Scan(&name, &value); err != nil {
-			return nil, fmt.Errorf("failed to scan gauge: %w", err)
+			s.logger.Error("Failed to scan gauge", zap.Error(err))
+			continue
 		}
 		result[name] = value
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating gauges: %w", err)
+		s.logger.Error("Error iterating gauges", zap.Error(err))
 	}
 
-	return result, nil
+	return result
 }
 
-func (s *DBStorage) GetAllCounters() (map[string]int64, error) {
+func (s *DBStorage) GetAllCounters() map[string]int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -310,7 +312,8 @@ func (s *DBStorage) GetAllCounters() (map[string]int64, error) {
 	}, nil)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get all counters: %w", err)
+		s.logger.Error("Failed to get all counters", zap.Error(err))
+		return result
 	}
 	defer rows.Close()
 
@@ -318,16 +321,17 @@ func (s *DBStorage) GetAllCounters() (map[string]int64, error) {
 		var name string
 		var value int64
 		if err := rows.Scan(&name, &value); err != nil {
-			return nil, fmt.Errorf("failed to scan counter: %w", err)
+			s.logger.Error("Failed to scan counter", zap.Error(err))
+			continue
 		}
 		result[name] = value
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating counters: %w", err)
+		s.logger.Error("Error iterating counters", zap.Error(err))
 	}
 
-	return result, nil
+	return result
 }
 
 func (s *DBStorage) Ping() error {
