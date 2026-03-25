@@ -26,8 +26,7 @@ func NewMigrator(logger *zap.Logger) *Migrator {
 }
 
 func (m *Migrator) Up(dsn string) error {
-	m.logger.Info("Starting database migrations",
-		zap.String("dsn", maskDSN(dsn)))
+	m.logger.Info("Starting database migrations")
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -58,7 +57,11 @@ func (m *Migrator) Up(dsn string) error {
 		return fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
-	m.logger.Info("Database migrations completed successfully")
+	version, dirty, _ := migrator.Version()
+	m.logger.Info("Database migrations completed",
+		zap.Uint("version", version),
+		zap.Bool("dirty", dirty))
+
 	return nil
 }
 
@@ -89,14 +92,6 @@ func (m *Migrator) Down(dsn string) error {
 	}
 
 	return nil
-}
-
-func maskDSN(dsn string) string {
-	// Простое маскирование DSN для логов
-	if len(dsn) > 30 {
-		return dsn[:15] + "..." + dsn[len(dsn)-10:]
-	}
-	return "postgres://***:***@***/***"
 }
 
 func (m *Migrator) Version(dsn string) (uint, bool, error) {
