@@ -140,8 +140,14 @@ func main() {
 
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
 	router.GET("/value/:type/:name", metricsHandler.GetValue)
+
 	router.POST("/update", metricsHandler.UpdateJSON)
 	router.POST("/value", metricsHandler.GetValueJSON)
+	router.POST("/value/", metricsHandler.GetValueJSON)
+
+	router.POST("/updates", metricsHandler.UpdateBatch)
+	router.POST("/updates/", metricsHandler.UpdateBatch)
+
 	router.GET("/", metricsHandler.GetAllMetrics)
 	router.GET("/ping", metricsHandler.PingDB)
 
@@ -170,6 +176,7 @@ func main() {
 		fmt.Println("  GET    /value/:type/:name")
 		fmt.Println("  POST   /update                      (application/json)")
 		fmt.Println("  POST   /value                       (application/json)")
+		fmt.Println("  POST   /updates                     (application/json) - batch update")
 		fmt.Println("  GET    /")
 		fmt.Println("  GET    /ping                        (health check)")
 
