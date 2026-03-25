@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -31,7 +32,7 @@ func main() {
 	storeInterval := flag.Int("i", 300, "интервал сохранения метрик на диск (в секундах, 0 - синхронная запись)")
 	filePath := flag.String("f", defaultFilePath, "путь до файла для сохранения метрик")
 	restore := flag.Bool("r", true, "загружать ранее сохранённые значения из файла при старте")
-	databaseDSN := flag.String("d", "", "строка подключения к PostgreSQL (например, postgres://user:pass@localhost:5432/dbname)")
+	databaseDSN := flag.String("d", "", "строка подключения к PostgreSQL")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Использование: %s [флаги]\n", os.Args[0])
@@ -40,7 +41,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -i=<ЗНАЧЕНИЕ>   интервал сохранения метрик на диск в секундах (по умолчанию 300, 0 - синхронная запись)\n")
 		fmt.Fprintf(os.Stderr, "  -f=<ЗНАЧЕНИЕ>   путь до файла для сохранения метрик (по умолчанию %s)\n", defaultFilePath)
 		fmt.Fprintf(os.Stderr, "  -r=<ЗНАЧЕНИЕ>   загружать ранее сохранённые значения из файла (по умолчанию true)\n")
-		fmt.Fprintf(os.Stderr, "  -d=<ЗНАЧЕНИЕ>   строка подключения к PostgreSQL (например, postgres://user:pass@localhost:5432/dbname)\n")
+		fmt.Fprintf(os.Stderr, "  -d=<ЗНАЧЕНИЕ>   строка подключения к PostgreSQL\n")
 		fmt.Fprintf(os.Stderr, "\nПеременные окружения:\n")
 		fmt.Fprintf(os.Stderr, "  ADDRESS          адрес эндпоинта HTTP-сервера\n")
 		fmt.Fprintf(os.Stderr, "  STORE_INTERVAL   интервал сохранения метрик на диск (секунды)\n")
@@ -61,29 +62,51 @@ func main() {
 	finalDatabaseDSN := flags.GetConfigString(databaseDSN, "d", "DATABASE_DSN", "")
 
 	var memStorage storage.Storage
-	var fileStorage *storage.FileStorage
+	var storageType string
 
 	if finalDatabaseDSN != "" {
-		logger.Info("Подключение к PostgreSQL", zap.String("dsn", finalDatabaseDSN))
-		dbStorage, err := storage.NewDBStorage(finalDatabaseDSN)
+		logger.Info("Попытка подключения к PostgreSQL", zap.String("dsn", maskDSN(finalDatabaseDSN)))
+
+		dbStorage, err := storage.NewDBStorage(finalDatabaseDSN, logger)
 		if err != nil {
-			logger.Fatal("Не удалось подключиться к БД", zap.Error(err))
+			logger.Warn("Не удалось подключиться к PostgreSQL, пробуем другие варианты",
+				zap.Error(err))
+		} else {
+			memStorage = dbStorage
+			storageType = "PostgreSQL"
+			logger.Info("Используется PostgreSQL хранилище")
 		}
-		memStorage = dbStorage
-		logger.Info("Подключение к PostgreSQL установлено")
-	} else {
-		var err error
-		fileStorage, err = storage.NewFileStorage(
+	}
+
+	if memStorage == nil && (finalFilePath != "" || flags.IsFlagSet("f") || os.Getenv("FILE_STORAGE_PATH") != "") {
+		logger.Info("Используется файловое хранилище",
+			zap.String("path", finalFilePath),
+			zap.Int("store_interval", finalStoreInterval),
+			zap.Bool("restore", finalRestore))
+
+		fileStorage, err := storage.NewFileStorage(
 			finalFilePath,
 			time.Duration(finalStoreInterval)*time.Second,
 			finalRestore,
 			logger,
 		)
 		if err != nil {
-			logger.Fatal("Не удалось создать файловое хранилище", zap.Error(err))
+			logger.Error("Не удалось создать файловое хранилище", zap.Error(err))
+		} else {
+			memStorage = fileStorage
+			storageType = "File"
 		}
-		memStorage = fileStorage
 	}
+
+	if memStorage == nil {
+		logger.Info("Используется in-memory хранилище")
+		memStorage = storage.NewMemStorage()
+		storageType = "In-Memory"
+	}
+
+	logger.Info("Хранилище выбрано",
+		zap.String("type", storageType),
+		zap.String("address", finalAddr))
 
 	metricsHandler := handlers.NewMetricsHandler(memStorage)
 
@@ -104,10 +127,8 @@ func main() {
 
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
 	router.GET("/value/:type/:name", metricsHandler.GetValue)
-
 	router.POST("/update", metricsHandler.UpdateJSON)
 	router.POST("/value", metricsHandler.GetValueJSON)
-
 	router.GET("/", metricsHandler.GetAllMetrics)
 	router.GET("/ping", metricsHandler.PingDB)
 
@@ -126,28 +147,31 @@ func main() {
 	go func() {
 		logger.Info("Сервер запущен",
 			zap.String("address", finalAddr),
-			zap.Int("store_interval", finalStoreInterval),
-			zap.String("file_path", finalFilePath),
-			zap.Bool("restore", finalRestore),
-			zap.String("database_dsn", finalDatabaseDSN))
+			zap.String("storage_type", storageType))
 
+		fmt.Println("\n=== Metrics Server ===")
+		fmt.Printf("Хранилище: %s\n", storageType)
+		fmt.Printf("Адрес: %s\n\n", finalAddr)
 		fmt.Println("Доступные эндпоинты:")
 		fmt.Println("  POST   /update/:type/:name/:value  (text/plain)")
 		fmt.Println("  GET    /value/:type/:name")
 		fmt.Println("  POST   /update                      (application/json)")
 		fmt.Println("  POST   /value                       (application/json)")
 		fmt.Println("  GET    /")
-		fmt.Println("  GET    /ping                        (health check with DB)")
+		fmt.Println("  GET    /ping                        (health check)")
 
-		if finalDatabaseDSN != "" {
-			fmt.Println("\nБаза данных:")
-			fmt.Printf("  - PostgreSQL подключен: %s\n", finalDatabaseDSN)
+		if storageType == "File" {
+			fmt.Printf("\nФайловое хранилище:\n")
+			fmt.Printf("  - Путь: %s\n", finalFilePath)
+			fmt.Printf("  - Интервал сохранения: %d сек\n", finalStoreInterval)
+			fmt.Printf("  - Восстановление при старте: %v\n", finalRestore)
+		} else if storageType == "PostgreSQL" {
+			fmt.Printf("\nPostgreSQL:\n")
+			fmt.Printf("  - DSN: %s\n", maskDSN(finalDatabaseDSN))
 		} else {
-			fmt.Println("\nСохранение метрик:")
-			fmt.Printf("  - Интервал сохранения: %d секунд\n", finalStoreInterval)
-			fmt.Printf("  - Файл для сохранения: %s\n", finalFilePath)
-			fmt.Printf("  - Загрузка при старте: %v\n", finalRestore)
+			fmt.Println("\nIn-Memory хранилище (данные не сохраняются между перезапусками)")
 		}
+		fmt.Println()
 
 		if err := srv.Run(); err != nil {
 			logger.Info("Сервер остановлен", zap.Error(err))
@@ -157,17 +181,9 @@ func main() {
 	<-quit
 	logger.Info("Получен сигнал завершения, останавливаем сервер...")
 
-	if finalDatabaseDSN != "" {
-		if dbStorage, ok := memStorage.(*storage.DBStorage); ok {
-			if err := dbStorage.Close(); err != nil {
-				logger.Error("Ошибка при закрытии соединения с БД", zap.Error(err))
-			}
-		}
-	} else {
-		if fileStorage != nil {
-			if err := fileStorage.Stop(); err != nil {
-				logger.Error("Ошибка при сохранении метрик", zap.Error(err))
-			}
+	if closer, ok := memStorage.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			logger.Error("Ошибка при закрытии хранилища", zap.Error(err))
 		}
 	}
 
@@ -176,4 +192,11 @@ func main() {
 	}
 
 	logger.Info("Сервер успешно завершил работу")
+}
+
+func maskDSN(dsn string) string {
+	if len(dsn) > 20 {
+		return dsn[:10] + "..." + dsn[len(dsn)-10:]
+	}
+	return "postgres://***:***@***/***"
 }

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -22,8 +23,13 @@ func NewDB(dsn string) (*DB, error) {
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(25)
 	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
 
-	if err := db.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -33,10 +39,14 @@ func NewDB(dsn string) (*DB, error) {
 	}, nil
 }
 
-func (db *DB) Ping() error {
-	return db.DB.Ping()
+func (db *DB) PingContext(ctx context.Context) error {
+	return db.DB.PingContext(ctx)
 }
 
 func (db *DB) Close() error {
 	return db.DB.Close()
+}
+
+func (db *DB) Stats() sql.DBStats {
+	return db.DB.Stats()
 }
