@@ -105,9 +105,8 @@ func (s *DBStorage) execWithRetry(ctx context.Context, query string, args ...int
 	}, nil)
 }
 
-func (s *DBStorage) queryRowWithRetry(ctx context.Context, query string, args ...interface{}) *sql.Row {
+func (s *DBStorage) queryRowWithRetry(ctx context.Context, query string, args ...interface{}) (*sql.Row, error) {
 	var row *sql.Row
-	var execErr error
 
 	err := retry.Do(ctx, func() error {
 		select {
@@ -120,20 +119,18 @@ func (s *DBStorage) queryRowWithRetry(ctx context.Context, query string, args ..
 		var dummy int
 		if err := row.Scan(&dummy); err != nil && err != sql.ErrNoRows {
 			if isRetriablePostgresError(err) {
-				execErr = err
 				return err
 			}
-			execErr = err
 			return err
 		}
 		return nil
 	}, nil)
 
 	if err != nil {
-		return &errorRow{err: err}
+		return nil, err
 	}
 
-	return row
+	return row, nil
 }
 
 func (s *DBStorage) queryWithRetry(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
@@ -256,13 +253,17 @@ func (s *DBStorage) GetCounter(name string) (int64, error) {
 	defer cancel()
 
 	var value int64
-	row := s.queryRowWithRetry(ctx, "SELECT value FROM counters WHERE name = $1", name)
-	err := row.Scan(&value)
+	row, err := s.queryRowWithRetry(ctx, "SELECT value FROM counters WHERE name = $1", name)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get counter %s: %w", name, err)
+	}
+
+	err = row.Scan(&value)
 	if err == sql.ErrNoRows {
 		return 0, fmt.Errorf("counter %s not found", name)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("failed to get counter %s: %w", name, err)
+		return 0, fmt.Errorf("failed to scan counter %s: %w", name, err)
 	}
 
 	return value, nil
@@ -276,13 +277,17 @@ func (s *DBStorage) GetGauge(name string) (float64, error) {
 	defer cancel()
 
 	var value float64
-	row := s.queryRowWithRetry(ctx, "SELECT value FROM gauges WHERE name = $1", name)
-	err := row.Scan(&value)
+	row, err := s.queryRowWithRetry(ctx, "SELECT value FROM gauges WHERE name = $1", name)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get gauge %s: %w", name, err)
+	}
+
+	err = row.Scan(&value)
 	if err == sql.ErrNoRows {
 		return 0, fmt.Errorf("gauge %s not found", name)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("failed to get gauge %s: %w", name, err)
+		return 0, fmt.Errorf("failed to scan gauge %s: %w", name, err)
 	}
 
 	return value, nil
