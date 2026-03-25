@@ -21,6 +21,10 @@ func DefaultConfig() *Config {
 }
 
 func Do(ctx context.Context, fn func() error, config *Config) error {
+	if ctx == nil {
+		ctx = context.TODO()
+	}
+
 	if config == nil {
 		config = DefaultConfig()
 	}

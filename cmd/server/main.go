@@ -151,6 +151,12 @@ func main() {
 	router.GET("/", metricsHandler.GetAllMetrics)
 	router.GET("/ping", metricsHandler.PingDB)
 
+	fmt.Println("=== Registered Routes ===")
+	for _, route := range router.Routes() {
+		fmt.Printf("%s %s\n", route.Method, route.Path)
+	}
+	fmt.Println("========================")
+
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
 	})
@@ -176,7 +182,9 @@ func main() {
 		fmt.Println("  GET    /value/:type/:name")
 		fmt.Println("  POST   /update                      (application/json)")
 		fmt.Println("  POST   /value                       (application/json)")
+		fmt.Println("  POST   /value/                      (application/json) - with slash")
 		fmt.Println("  POST   /updates                     (application/json) - batch update")
+		fmt.Println("  POST   /updates/                    (application/json) - batch update with slash")
 		fmt.Println("  GET    /")
 		fmt.Println("  GET    /ping                        (health check)")
 

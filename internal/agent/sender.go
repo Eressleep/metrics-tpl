@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/Eressleep/metrics-tpl/internal/model"
 	"github.com/Eressleep/metrics-tpl/pkg/retry"
-	"github.com/mailru/easyjson"
 )
 
 type Sender struct {
@@ -103,7 +103,7 @@ func (s *Sender) sendBatchWithRetry(batch []model.Metrics) {
 func (s *Sender) sendBatch(batch []model.Metrics) error {
 	url := fmt.Sprintf("http://%s/updates", s.serverAddr)
 
-	data, err := easyjson.Marshal(batch)
+	data, err := json.Marshal(batch)
 	if err != nil {
 		return fmt.Errorf("error marshaling batch: %w", err)
 	}

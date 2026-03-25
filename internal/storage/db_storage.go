@@ -11,7 +11,6 @@ import (
 	"github.com/Eressleep/metrics-tpl/pkg/retry"
 	"github.com/jackc/pgerrcode"
 	"github.com/lib/pq"
-	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
 
@@ -73,14 +72,14 @@ func isRetriablePostgresError(err error) bool {
 			pgerrcode.ConnectionException,
 			pgerrcode.ConnectionDoesNotExist,
 			pgerrcode.ConnectionFailure,
-			pgerrcode.SqlclientUnableToEstablishSqlconnection,
-			pgerrcode.SqlserverRejectedEstablishmentOfSqlconnection,
+			pgerrcode.SQLClientUnableToEstablishSQLConnection,
+			pgerrcode.SQLServerRejectedEstablishmentOfSQLConnection,
 			pgerrcode.TransactionResolutionUnknown,
 			pgerrcode.ProtocolViolation,
 		}
 
 		for _, code := range connectionErrors {
-			if pgErr.Code == code {
+			if string(pgErr.Code) == code {
 				return true
 			}
 		}
@@ -103,53 +102,6 @@ func (s *DBStorage) execWithRetry(ctx context.Context, query string, args ...int
 		}
 		return err
 	}, nil)
-}
-
-func (s *DBStorage) queryRowWithRetry(ctx context.Context, query string, args ...interface{}) *sql.Row {
-	var row *sql.Row
-
-	err := retry.Do(ctx, func() error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		row = s.db.QueryRowContext(ctx, query, args...)
-		var dummy int
-		if err := row.Scan(&dummy); err != nil && err != sql.ErrNoRows {
-			if isRetriablePostgresError(err) {
-				return err
-			}
-		}
-		return nil
-	}, nil)
-
-	if err != nil {
-		return s.db.QueryRowContext(ctx, "SELECT 1 WHERE false")
-	}
-
-	return row
-}
-
-func (s *DBStorage) queryWithRetry(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
-	var rows *sql.Rows
-	err := retry.Do(ctx, func() error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		var err error
-		rows, err = s.db.QueryContext(ctx, query, args...)
-		if err != nil && !isRetriablePostgresError(err) {
-			return err
-		}
-		return err
-	}, nil)
-
-	return rows, err
 }
 
 func (s *DBStorage) UpdateCounter(name string, value int64) error {
@@ -244,11 +196,22 @@ func (s *DBStorage) GetCounter(name string) (int64, error) {
 	defer cancel()
 
 	var value int64
-	row := s.queryRowWithRetry(ctx, "SELECT value FROM counters WHERE name = $1", name)
-	err := row.Scan(&value)
-	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("counter %s not found", name)
-	}
+
+	err := retry.Do(ctx, func() error {
+		row := s.db.QueryRowContext(ctx, "SELECT value FROM counters WHERE name = $1", name)
+		err := row.Scan(&value)
+
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("counter %s not found", name)
+		}
+
+		if err != nil && !isRetriablePostgresError(err) {
+			return err
+		}
+
+		return err
+	}, nil)
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to get counter %s: %w", name, err)
 	}
@@ -264,11 +227,22 @@ func (s *DBStorage) GetGauge(name string) (float64, error) {
 	defer cancel()
 
 	var value float64
-	row := s.queryRowWithRetry(ctx, "SELECT value FROM gauges WHERE name = $1", name)
-	err := row.Scan(&value)
-	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("gauge %s not found", name)
-	}
+
+	err := retry.Do(ctx, func() error {
+		row := s.db.QueryRowContext(ctx, "SELECT value FROM gauges WHERE name = $1", name)
+		err := row.Scan(&value)
+
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("gauge %s not found", name)
+		}
+
+		if err != nil && !isRetriablePostgresError(err) {
+			return err
+		}
+
+		return err
+	}, nil)
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to get gauge %s: %w", name, err)
 	}
@@ -285,7 +259,16 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	rows, err := s.queryWithRetry(ctx, "SELECT name, value FROM gauges ORDER BY name")
+	var rows *sql.Rows
+	err := retry.Do(ctx, func() error {
+		var err error
+		rows, err = s.db.QueryContext(ctx, "SELECT name, value FROM gauges ORDER BY name")
+		if err != nil && !isRetriablePostgresError(err) {
+			return err
+		}
+		return err
+	}, nil)
+
 	if err != nil {
 		s.logger.Error("Failed to get all gauges", zap.Error(err))
 		return result
@@ -314,7 +297,16 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	rows, err := s.queryWithRetry(ctx, "SELECT name, value FROM counters ORDER BY name")
+	var rows *sql.Rows
+	err := retry.Do(ctx, func() error {
+		var err error
+		rows, err = s.db.QueryContext(ctx, "SELECT name, value FROM counters ORDER BY name")
+		if err != nil && !isRetriablePostgresError(err) {
+			return err
+		}
+		return err
+	}, nil)
+
 	if err != nil {
 		s.logger.Error("Failed to get all counters", zap.Error(err))
 		return result
