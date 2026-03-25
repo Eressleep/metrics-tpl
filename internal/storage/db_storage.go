@@ -105,6 +105,61 @@ func (s *DBStorage) UpdateGauge(name string, value float64) error {
 	return nil
 }
 
+func (s *DBStorage) BatchUpdate(ctx context.Context, metrics []Metrics) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	gaugeQuery := `
+		INSERT INTO gauges (name, value) 
+		VALUES ($1, $2)
+		ON CONFLICT (name) 
+		DO UPDATE SET value = $2
+	`
+
+	counterQuery := `
+		INSERT INTO counters (name, value) 
+		VALUES ($1, $2)
+		ON CONFLICT (name) 
+		DO UPDATE SET value = counters.value + $2
+	`
+
+	for _, m := range metrics {
+		switch m.MType {
+		case "counter":
+			if m.Delta != nil {
+				_, err := tx.ExecContext(ctx, counterQuery, m.ID, *m.Delta)
+				if err != nil {
+					return fmt.Errorf("failed to update counter %s: %w", m.ID, err)
+				}
+			}
+		case "gauge":
+			if m.Value != nil {
+				_, err := tx.ExecContext(ctx, gaugeQuery, m.ID, *m.Value)
+				if err != nil {
+					return fmt.Errorf("failed to update gauge %s: %w", m.ID, err)
+				}
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	s.logger.Debug("Batch update completed", zap.Int("count", len(metrics)))
+	return nil
+}
+
 func (s *DBStorage) GetCounter(name string) (int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

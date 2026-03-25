@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"sync"
 )
@@ -39,6 +40,36 @@ func (s *MemStorage) UpdateGauge(name string, value float64) error {
 	defer s.mu.Unlock()
 
 	s.gauges[name] = value
+	return nil
+}
+
+func (s *MemStorage) BatchUpdate(ctx context.Context, metrics []Metrics) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	for _, m := range metrics {
+		switch m.MType {
+		case "counter":
+			if m.Delta != nil {
+				s.counters[m.ID] += *m.Delta
+			}
+		case "gauge":
+			if m.Value != nil {
+				s.gauges[m.ID] = *m.Value
+			}
+		}
+	}
+
 	return nil
 }
 

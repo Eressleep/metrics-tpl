@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"sync"
@@ -90,6 +91,38 @@ func (fs *FileStorage) UpdateGauge(name string, value float64) error {
 	if fs.storeInterval == 0 {
 		return fs.saveToFile()
 	}
+	return nil
+}
+
+func (fs *FileStorage) BatchUpdate(ctx context.Context, metrics []Metrics) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	fs.dataMu.Lock()
+	defer fs.dataMu.Unlock()
+
+	for _, m := range metrics {
+		switch m.MType {
+		case "counter":
+			if m.Delta != nil {
+				if err := fs.MemStorage.UpdateCounter(m.ID, *m.Delta); err != nil {
+					return err
+				}
+			}
+		case "gauge":
+			if m.Value != nil {
+				if err := fs.MemStorage.UpdateGauge(m.ID, *m.Value); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	if fs.storeInterval == 0 {
+		return fs.saveToFile()
+	}
+
 	return nil
 }
 
