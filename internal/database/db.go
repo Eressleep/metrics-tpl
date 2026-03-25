@@ -1,3 +1,4 @@
+// internal/database/db.go
 package database
 
 import (
@@ -12,6 +13,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
+//go:embed migrations/*.sql
 var migrationsFS embed.FS
 
 type DB struct {
@@ -33,7 +35,7 @@ func NewDB(dsn string) (*DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	if err := runMigrations(db, dsn); err != nil {
+	if err := runMigrations(db); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -43,7 +45,7 @@ func NewDB(dsn string) (*DB, error) {
 	}, nil
 }
 
-func runMigrations(db *sql.DB, dsn string) error {
+func runMigrations(db *sql.DB) error {
 	driver, err := postgres.WithInstance(db, &postgres.Config{})
 	if err != nil {
 		return fmt.Errorf("failed to create postgres driver: %w", err)
