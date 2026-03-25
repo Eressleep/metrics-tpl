@@ -1,4 +1,6 @@
-package models
+package model
+
+//go:generate easyjson -all metrics.go
 
 const (
 	Counter = "counter"
