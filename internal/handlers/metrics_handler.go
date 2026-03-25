@@ -319,6 +319,10 @@ func (h *MetricsHandler) handleGauge(name, valueStr string) error {
 	return h.storage.UpdateGauge(name, value)
 }
 
+func (h *MetricsHandler) Ping(c *gin.Context) {
+	c.String(http.StatusOK, "pong")
+}
+
 func (h *MetricsHandler) PingDB(c *gin.Context) {
 	type pinger interface {
 		Ping() error

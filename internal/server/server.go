@@ -46,7 +46,7 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
 	router.GET("/value/:type/:name", metricsHandler.GetValue)
 	router.GET("/", metricsHandler.GetAllMetrics)
-	router.GET("/ping", metricsHandler.Ping)
+	router.GET("/ping", metricsHandler.PingDB)
 
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})

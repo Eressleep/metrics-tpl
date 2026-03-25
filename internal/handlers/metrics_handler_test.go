@@ -24,7 +24,7 @@ func setupMetricsHandlerTest(t *testing.T) (*gin.Engine, *MetricsHandler, storag
 	router.POST("/update/:type/:name/:value", handler.Update)
 	router.GET("/value/:type/:name", handler.GetValue)
 	router.GET("/", handler.GetAllMetrics)
-	router.GET("/ping", handler.Ping)
+	router.GET("/ping", handler.PingDB)
 
 	return router, handler, store
 }
