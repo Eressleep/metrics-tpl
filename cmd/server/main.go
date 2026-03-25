@@ -116,6 +116,7 @@ func main() {
 
 	router.GET("/", metricsHandler.GetAllMetrics)
 	router.GET("/ping", metricsHandler.PingDB)
+	router.GET("/health", metricsHandler.Ping)
 
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
