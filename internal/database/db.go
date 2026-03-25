@@ -37,5 +37,6 @@ func (db *DB) Ping() error {
 	return db.DB.Ping()
 }
 
+func (db *DB) Close() error {
 	return db.DB.Close()
 }
