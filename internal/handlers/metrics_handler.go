@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -119,8 +120,8 @@ func (h *MetricsHandler) UpdateBatch(c *gin.Context) {
 	}
 	defer c.Request.Body.Close()
 
-	var batch model.BatchMetrics
-	if err := easyjson.Unmarshal(body, &batch); err != nil {
+	var batch []model.Metrics
+	if err := json.Unmarshal(body, &batch); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON format: " + err.Error()})
 		return
 	}
