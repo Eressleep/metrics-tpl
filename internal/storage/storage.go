@@ -1,4 +1,3 @@
-// internal/storage/storage.go
 package storage
 
 import (
@@ -29,7 +28,6 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Создаем таблицы если они не существуют
 	if err := initTables(db); err != nil {
 		return nil, fmt.Errorf("failed to init tables: %w", err)
 	}
@@ -125,6 +123,11 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 			result[name] = value
 		}
 	}
+
+	if err := rows.Err(); err != nil {
+		return result
+	}
+
 	return result
 }
 
@@ -146,6 +149,11 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 			result[name] = value
 		}
 	}
+
+	if err := rows.Err(); err != nil {
+		return result
+	}
+
 	return result
 }
 

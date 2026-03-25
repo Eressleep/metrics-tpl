@@ -711,3 +711,21 @@ func BenchmarkGetValueJSON(b *testing.B) {
 		router.ServeHTTP(w, req)
 	}
 }
+
+func TestPingDB(t *testing.T) {
+	router, _, _ := setupMetricsHandlerTest(t)
+
+	req := httptest.NewRequest("GET", "/ping", nil)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status OK, got %d", w.Code)
+	}
+
+	body, _ := io.ReadAll(w.Body)
+	if string(body) != "pong" {
+		t.Errorf("Expected body 'pong', got '%s'", string(body))
+	}
+}

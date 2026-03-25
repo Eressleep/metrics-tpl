@@ -333,9 +333,6 @@ func (h *MetricsHandler) PingDB(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "database connection failed"})
 			return
 		}
-		c.String(http.StatusOK, "pong")
-		return
 	}
-
 	c.String(http.StatusOK, "pong")
 }
