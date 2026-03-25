@@ -287,6 +287,7 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 
 	if err := rows.Err(); err != nil {
 		s.logger.Error("Error iterating gauges", zap.Error(err))
+		_ = err
 	}
 
 	return result
@@ -329,6 +330,7 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 
 	if err := rows.Err(); err != nil {
 		s.logger.Error("Error iterating counters", zap.Error(err))
+		_ = err
 	}
 
 	return result
