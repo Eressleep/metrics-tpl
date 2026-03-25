@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"sort"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -13,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-//go:embed ../database/migrations/*.sql
+//go:embed migrations/*.sql
 var migrationsFS embed.FS
 
 type Migrator struct {
@@ -27,7 +26,8 @@ func NewMigrator(logger *zap.Logger) *Migrator {
 }
 
 func (m *Migrator) Up(dsn string) error {
-	m.logger.Info("Starting database migrations", zap.String("dsn", maskDSN(dsn)))
+	m.logger.Info("Starting database migrations",
+		zap.String("dsn", maskDSN(dsn)))
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -44,7 +44,7 @@ func (m *Migrator) Up(dsn string) error {
 		return fmt.Errorf("failed to create postgres driver: %w", err)
 	}
 
-	source, err := iofs.New(migrationsFS, "../database/migrations")
+	source, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("failed to create migration source: %w", err)
 	}
@@ -74,7 +74,7 @@ func (m *Migrator) Down(dsn string) error {
 		return fmt.Errorf("failed to create postgres driver: %w", err)
 	}
 
-	source, err := iofs.New(migrationsFS, "../database/migrations")
+	source, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("failed to create migration source: %w", err)
 	}
@@ -92,7 +92,11 @@ func (m *Migrator) Down(dsn string) error {
 }
 
 func maskDSN(dsn string) string {
-	return "postgres://****:****@****/****"
+	// Простое маскирование DSN для логов
+	if len(dsn) > 30 {
+		return dsn[:15] + "..." + dsn[len(dsn)-10:]
+	}
+	return "postgres://***:***@***/***"
 }
 
 func (m *Migrator) Version(dsn string) (uint, bool, error) {
@@ -107,7 +111,7 @@ func (m *Migrator) Version(dsn string) (uint, bool, error) {
 		return 0, false, err
 	}
 
-	source, err := iofs.New(migrationsFS, "../database/migrations")
+	source, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
 		return 0, false, err
 	}

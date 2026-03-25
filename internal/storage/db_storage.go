@@ -60,7 +60,7 @@ func (s *DBStorage) UpdateCounter(name string, value int64) error {
 		INSERT INTO counters (name, value) 
 		VALUES ($1, $2)
 		ON CONFLICT (name) 
-		DO UPDATE SET value = counters.value + $2, updated_at = NOW()
+		DO UPDATE SET value = counters.value + $2
 		RETURNING value
 	`
 
@@ -93,7 +93,7 @@ func (s *DBStorage) UpdateGauge(name string, value float64) error {
 		INSERT INTO gauges (name, value) 
 		VALUES ($1, $2)
 		ON CONFLICT (name) 
-		DO UPDATE SET value = $2, updated_at = NOW()
+		DO UPDATE SET value = $2
 		RETURNING value
 	`
 
@@ -179,11 +179,6 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 		result[name] = value
 	}
 
-	if err := rows.Err(); err != nil {
-		s.logger.Error("Error iterating gauges", zap.Error(err))
-	}
-
-	s.logger.Debug("Retrieved all gauges", zap.Int("count", len(result)))
 	return result
 }
 
@@ -213,11 +208,6 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 		result[name] = value
 	}
 
-	if err := rows.Err(); err != nil {
-		s.logger.Error("Error iterating counters", zap.Error(err))
-	}
-
-	s.logger.Debug("Retrieved all counters", zap.Int("count", len(result)))
 	return result
 }
 
@@ -231,72 +221,4 @@ func (s *DBStorage) Ping() error {
 func (s *DBStorage) Close() error {
 	s.logger.Info("Closing database connection")
 	return s.db.Close()
-}
-
-func (s *DBStorage) GetStats() map[string]interface{} {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	stats := make(map[string]interface{})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	var gaugesCount, countersCount int
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM gauges").Scan(&gaugesCount)
-	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM counters").Scan(&countersCount)
-
-	stats["gauges_count"] = gaugesCount
-	stats["counters_count"] = countersCount
-	stats["total_metrics"] = gaugesCount + countersCount
-
-	return stats
-}
-
-func (s *DBStorage) BatchUpdate(gauges map[string]float64, counters map[string]int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	for name, value := range gauges {
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO gauges (name, value) 
-			VALUES ($1, $2)
-			ON CONFLICT (name) 
-			DO UPDATE SET value = $2, updated_at = NOW()
-		`, name, value)
-		if err != nil {
-			return fmt.Errorf("failed to update gauge %s: %w", name, err)
-		}
-	}
-
-	for name, value := range counters {
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO counters (name, value) 
-			VALUES ($1, $2)
-			ON CONFLICT (name) 
-			DO UPDATE SET value = counters.value + $2, updated_at = NOW()
-		`, name, value)
-		if err != nil {
-			return fmt.Errorf("failed to update counter %s: %w", name, err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	s.logger.Debug("Batch update completed",
-		zap.Int("gauges", len(gauges)),
-		zap.Int("counters", len(counters)))
-
-	return nil
 }
