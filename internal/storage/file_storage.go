@@ -231,3 +231,7 @@ func (fs *FileStorage) Stop() error {
 
 	return fs.saveToFile()
 }
+
+func (fs *FileStorage) Close() error {
+	return fs.Stop()
+}

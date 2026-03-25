@@ -15,6 +15,7 @@ type Storage interface {
 	GetGauge(name string) (float64, error)
 	GetAllGauges() map[string]float64
 	GetAllCounters() map[string]int64
+	Close() error
 }
 
 type DBStorage struct {
@@ -28,37 +29,9 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	if err := initTables(db); err != nil {
-		return nil, fmt.Errorf("failed to init tables: %w", err)
-	}
-
 	return &DBStorage{
 		db: db,
 	}, nil
-}
-
-func initTables(db *database.DB) error {
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS gauges (
-			name TEXT PRIMARY KEY,
-			value DOUBLE PRECISION NOT NULL,
-			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS counters (
-			name TEXT PRIMARY KEY,
-			value BIGINT NOT NULL,
-			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-		)`,
-	}
-
-	for _, query := range queries {
-		_, err := db.Exec(query)
-		if err != nil {
-			return fmt.Errorf("failed to execute query: %w", err)
-		}
-	}
-
-	return nil
 }
 
 func (s *DBStorage) UpdateCounter(name string, value int64) error {

@@ -106,3 +106,7 @@ func (s *MemStorage) Reset() {
 	s.gauges = make(map[string]float64)
 	s.counters = make(map[string]int64)
 }
+
+func (s *MemStorage) Close() error {
+	return nil
+}

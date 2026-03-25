@@ -64,14 +64,17 @@ func main() {
 	var fileStorage *storage.FileStorage
 
 	if finalDatabaseDSN != "" {
-		logger.Info("Подключение к PostgreSQL", zap.String("dsn", finalDatabaseDSN))
+		logger.Info("Используем PostgreSQL для хранения метрик", zap.String("dsn", finalDatabaseDSN))
 		dbStorage, err := storage.NewDBStorage(finalDatabaseDSN)
 		if err != nil {
 			logger.Fatal("Не удалось подключиться к БД", zap.Error(err))
 		}
 		memStorage = dbStorage
 		logger.Info("Подключение к PostgreSQL установлено")
-	} else {
+	} else if finalFilePath != defaultFilePath || finalStoreInterval != 300 {
+		logger.Info("Используем файловое хранилище для метрик",
+			zap.String("file_path", finalFilePath),
+			zap.Int("store_interval", finalStoreInterval))
 		var err error
 		fileStorage, err = storage.NewFileStorage(
 			finalFilePath,
@@ -83,6 +86,9 @@ func main() {
 			logger.Fatal("Не удалось создать файловое хранилище", zap.Error(err))
 		}
 		memStorage = fileStorage
+	} else {
+		logger.Info("Используем in-memory хранилище для метрик")
+		memStorage = storage.NewMemStorage()
 	}
 
 	metricsHandler := handlers.NewMetricsHandler(memStorage)
@@ -142,11 +148,14 @@ func main() {
 		if finalDatabaseDSN != "" {
 			fmt.Println("\nБаза данных:")
 			fmt.Printf("  - PostgreSQL подключен: %s\n", finalDatabaseDSN)
-		} else {
+		} else if finalFilePath != defaultFilePath || finalStoreInterval != 300 {
 			fmt.Println("\nСохранение метрик:")
 			fmt.Printf("  - Интервал сохранения: %d секунд\n", finalStoreInterval)
 			fmt.Printf("  - Файл для сохранения: %s\n", finalFilePath)
 			fmt.Printf("  - Загрузка при старте: %v\n", finalRestore)
+		} else {
+			fmt.Println("\nХранилище:")
+			fmt.Println("  - In-memory (данные не сохраняются)")
 		}
 
 		if err := srv.Run(); err != nil {
@@ -163,11 +172,9 @@ func main() {
 				logger.Error("Ошибка при закрытии соединения с БД", zap.Error(err))
 			}
 		}
-	} else {
-		if fileStorage != nil {
-			if err := fileStorage.Stop(); err != nil {
-				logger.Error("Ошибка при сохранении метрик", zap.Error(err))
-			}
+	} else if fileStorage != nil {
+		if err := fileStorage.Stop(); err != nil {
+			logger.Error("Ошибка при сохранении метрик", zap.Error(err))
 		}
 	}
 
