@@ -73,14 +73,14 @@ func isRetriablePostgresError(err error) bool {
 			pgerrcode.ConnectionException,
 			pgerrcode.ConnectionDoesNotExist,
 			pgerrcode.ConnectionFailure,
-			pgerrcode.SqlclientUnableToEstablishSqlconnection,
-			pgerrcode.SqlserverRejectedEstablishmentOfSqlconnection,
+			pgerrcode.SQLClientUnableToEstablishSQLConnection,
+			pgerrcode.SQLServerRejectedEstablishmentOfSQLConnection,
 			pgerrcode.TransactionResolutionUnknown,
 			pgerrcode.ProtocolViolation,
 		}
 
 		for _, code := range connectionErrors {
-			if pgErr.Code == code {
+			if string(pgErr.Code) == code {
 				return true
 			}
 		}
@@ -107,6 +107,7 @@ func (s *DBStorage) execWithRetry(ctx context.Context, query string, args ...int
 
 func (s *DBStorage) queryRowWithRetry(ctx context.Context, query string, args ...interface{}) *sql.Row {
 	var row *sql.Row
+	var execErr error
 
 	err := retry.Do(ctx, func() error {
 		select {
@@ -119,14 +120,17 @@ func (s *DBStorage) queryRowWithRetry(ctx context.Context, query string, args ..
 		var dummy int
 		if err := row.Scan(&dummy); err != nil && err != sql.ErrNoRows {
 			if isRetriablePostgresError(err) {
+				execErr = err
 				return err
 			}
+			execErr = err
+			return err
 		}
 		return nil
 	}, nil)
 
 	if err != nil {
-		return s.db.QueryRowContext(ctx, "SELECT 1 WHERE false")
+		return &errorRow{err: err}
 	}
 
 	return row
@@ -150,6 +154,14 @@ func (s *DBStorage) queryWithRetry(ctx context.Context, query string, args ...in
 	}, nil)
 
 	return rows, err
+}
+
+type errorRow struct {
+	err error
+}
+
+func (r *errorRow) Scan(dest ...interface{}) error {
+	return r.err
 }
 
 func (s *DBStorage) UpdateCounter(name string, value int64) error {

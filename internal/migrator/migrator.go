@@ -1,6 +1,7 @@
 package migrator
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -31,7 +32,7 @@ func (m *Migrator) Up(dsn string) error {
 
 	var db *sql.DB
 
-	err := retry.Do(nil, func() error {
+	err := retry.Do(context.TODO(), func() error {
 		var err error
 		db, err = sql.Open("postgres", dsn)
 		if err != nil {
