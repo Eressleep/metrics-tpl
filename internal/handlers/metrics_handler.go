@@ -322,3 +322,20 @@ func (h *MetricsHandler) handleGauge(name, valueStr string) error {
 func (h *MetricsHandler) Ping(c *gin.Context) {
 	c.String(http.StatusOK, "pong")
 }
+
+func (h *MetricsHandler) PingDB(c *gin.Context) {
+	type pinger interface {
+		Ping() error
+	}
+
+	if pinger, ok := h.storage.(pinger); ok {
+		if err := pinger.Ping(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "database connection failed"})
+			return
+		}
+		c.String(http.StatusOK, "pong")
+		return
+	}
+
+	c.String(http.StatusOK, "pong")
+}
