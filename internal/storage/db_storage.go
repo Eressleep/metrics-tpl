@@ -104,62 +104,6 @@ func (s *DBStorage) execWithRetry(ctx context.Context, query string, args ...int
 	}, nil)
 }
 
-func (s *DBStorage) queryRowWithRetry(ctx context.Context, query string, args ...interface{}) (*sql.Row, error) {
-	var row *sql.Row
-
-	err := retry.Do(ctx, func() error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		row = s.db.QueryRowContext(ctx, query, args...)
-		var dummy int
-		if err := row.Scan(&dummy); err != nil && err != sql.ErrNoRows {
-			if isRetriablePostgresError(err) {
-				return err
-			}
-			return err
-		}
-		return nil
-	}, nil)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return row, nil
-}
-
-func (s *DBStorage) queryWithRetry(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
-	var rows *sql.Rows
-	err := retry.Do(ctx, func() error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		var err error
-		rows, err = s.db.QueryContext(ctx, query, args...)
-		if err != nil && !isRetriablePostgresError(err) {
-			return err
-		}
-		return err
-	}, nil)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if rows == nil {
-		return nil, fmt.Errorf("query returned nil rows")
-	}
-
-	return rows, nil
-}
-
 func (s *DBStorage) UpdateCounter(name string, value int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -252,17 +196,24 @@ func (s *DBStorage) GetCounter(name string) (int64, error) {
 	defer cancel()
 
 	var value int64
-	row, err := s.queryRowWithRetry(ctx, "SELECT value FROM counters WHERE name = $1", name)
+
+	err := retry.Do(ctx, func() error {
+		row := s.db.QueryRowContext(ctx, "SELECT value FROM counters WHERE name = $1", name)
+		err := row.Scan(&value)
+
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("counter %s not found", name)
+		}
+
+		if err != nil && !isRetriablePostgresError(err) {
+			return err
+		}
+
+		return err
+	}, nil)
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to get counter %s: %w", name, err)
-	}
-
-	err = row.Scan(&value)
-	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("counter %s not found", name)
-	}
-	if err != nil {
-		return 0, fmt.Errorf("failed to scan counter %s: %w", name, err)
 	}
 
 	return value, nil
@@ -276,23 +227,30 @@ func (s *DBStorage) GetGauge(name string) (float64, error) {
 	defer cancel()
 
 	var value float64
-	row, err := s.queryRowWithRetry(ctx, "SELECT value FROM gauges WHERE name = $1", name)
+
+	err := retry.Do(ctx, func() error {
+		row := s.db.QueryRowContext(ctx, "SELECT value FROM gauges WHERE name = $1", name)
+		err := row.Scan(&value)
+
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("gauge %s not found", name)
+		}
+
+		if err != nil && !isRetriablePostgresError(err) {
+			return err
+		}
+
+		return err
+	}, nil)
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to get gauge %s: %w", name, err)
-	}
-
-	err = row.Scan(&value)
-	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("gauge %s not found", name)
-	}
-	if err != nil {
-		return 0, fmt.Errorf("failed to scan gauge %s: %w", name, err)
 	}
 
 	return value, nil
 }
 
-func (s *DBStorage) GetAllGauges() map[string]float64 {
+func (s *DBStorage) GetAllGauges() (map[string]float64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -301,10 +259,18 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	rows, err := s.queryWithRetry(ctx, "SELECT name, value FROM gauges ORDER BY name")
+	var rows *sql.Rows
+	err := retry.Do(ctx, func() error {
+		var err error
+		rows, err = s.db.QueryContext(ctx, "SELECT name, value FROM gauges ORDER BY name")
+		if err != nil && !isRetriablePostgresError(err) {
+			return err
+		}
+		return err
+	}, nil)
+
 	if err != nil {
-		s.logger.Error("Failed to get all gauges", zap.Error(err))
-		return result
+		return nil, fmt.Errorf("failed to get all gauges: %w", err)
 	}
 	defer rows.Close()
 
@@ -312,20 +278,19 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 		var name string
 		var value float64
 		if err := rows.Scan(&name, &value); err != nil {
-			s.logger.Error("Failed to scan gauge", zap.Error(err))
-			continue
+			return nil, fmt.Errorf("failed to scan gauge: %w", err)
 		}
 		result[name] = value
 	}
 
 	if err := rows.Err(); err != nil {
-		s.logger.Error("Error iterating gauges", zap.Error(err))
+		return nil, fmt.Errorf("error iterating gauges: %w", err)
 	}
 
-	return result
+	return result, nil
 }
 
-func (s *DBStorage) GetAllCounters() map[string]int64 {
+func (s *DBStorage) GetAllCounters() (map[string]int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -334,10 +299,18 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	rows, err := s.queryWithRetry(ctx, "SELECT name, value FROM counters ORDER BY name")
+	var rows *sql.Rows
+	err := retry.Do(ctx, func() error {
+		var err error
+		rows, err = s.db.QueryContext(ctx, "SELECT name, value FROM counters ORDER BY name")
+		if err != nil && !isRetriablePostgresError(err) {
+			return err
+		}
+		return err
+	}, nil)
+
 	if err != nil {
-		s.logger.Error("Failed to get all counters", zap.Error(err))
-		return result
+		return nil, fmt.Errorf("failed to get all counters: %w", err)
 	}
 	defer rows.Close()
 
@@ -345,17 +318,16 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 		var name string
 		var value int64
 		if err := rows.Scan(&name, &value); err != nil {
-			s.logger.Error("Failed to scan counter", zap.Error(err))
-			continue
+			return nil, fmt.Errorf("failed to scan counter: %w", err)
 		}
 		result[name] = value
 	}
 
 	if err := rows.Err(); err != nil {
-		s.logger.Error("Error iterating counters", zap.Error(err))
+		return nil, fmt.Errorf("error iterating counters: %w", err)
 	}
 
-	return result
+	return result, nil
 }
 
 func (s *DBStorage) Ping() error {

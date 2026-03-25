@@ -151,11 +151,11 @@ func main() {
 	router.GET("/", metricsHandler.GetAllMetrics)
 	router.GET("/ping", metricsHandler.PingDB)
 
-	fmt.Println("\n=== Registered Routes ===")
+	fmt.Println("=== Registered Routes ===")
 	for _, route := range router.Routes() {
 		fmt.Printf("%s %s\n", route.Method, route.Path)
 	}
-	fmt.Println("========================\n")
+	fmt.Println("========================")
 
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
