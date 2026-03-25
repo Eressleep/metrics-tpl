@@ -191,6 +191,9 @@ func (fs *FileStorage) loadFromFile() error {
 	fs.dataMu.Lock()
 	defer fs.dataMu.Unlock()
 
+	fs.gauges = make(map[string]float64)
+	fs.counters = make(map[string]int64)
+
 	for _, metric := range metrics {
 		switch metric.MType {
 		case model.Gauge:
