@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -65,7 +64,7 @@ func main() {
 	var storageType string
 
 	if finalDatabaseDSN != "" {
-		logger.Info("Попытка подключения к PostgreSQL", zap.String("dsn", maskDSN(finalDatabaseDSN)))
+		logger.Info("Попытка подключения к PostgreSQL")
 
 		dbStorage, err := storage.NewDBStorage(finalDatabaseDSN, logger)
 		if err != nil {
@@ -167,7 +166,7 @@ func main() {
 			fmt.Printf("  - Восстановление при старте: %v\n", finalRestore)
 		} else if storageType == "PostgreSQL" {
 			fmt.Printf("\nPostgreSQL:\n")
-			fmt.Printf("  - DSN: %s\n", maskDSN(finalDatabaseDSN))
+			fmt.Printf("  - DSN: %s\n", finalDatabaseDSN)
 		} else {
 			fmt.Println("\nIn-Memory хранилище (данные не сохраняются между перезапусками)")
 		}
@@ -192,11 +191,4 @@ func main() {
 	}
 
 	logger.Info("Сервер успешно завершил работу")
-}
-
-func maskDSN(dsn string) string {
-	if len(dsn) > 20 {
-		return dsn[:10] + "..." + dsn[len(dsn)-10:]
-	}
-	return "postgres://***:***@***/***"
 }

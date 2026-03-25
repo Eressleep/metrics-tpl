@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Eressleep/metrics-tpl/internal/database"
 	"github.com/Eressleep/metrics-tpl/internal/migrator"
+	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
 
 type DBStorage struct {
-	db     *database.DB
+	db     *sql.DB
 	logger *zap.Logger
 	mu     sync.RWMutex
 }
@@ -23,16 +23,24 @@ func NewDBStorage(dsn string, logger *zap.Logger) (*DBStorage, error) {
 		logger, _ = zap.NewProduction()
 	}
 
+	// Выполняем миграции
 	m := migrator.NewMigrator(logger)
 	if err := m.Up(dsn); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	db, err := database.NewDB(dsn)
+	// Подключаемся к БД
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Настройка пула соединений
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	// Проверяем соединение
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -61,11 +69,9 @@ func (s *DBStorage) UpdateCounter(name string, value int64) error {
 		VALUES ($1, $2)
 		ON CONFLICT (name) 
 		DO UPDATE SET value = counters.value + $2
-		RETURNING value
 	`
 
-	var newValue int64
-	err := s.db.QueryRowContext(ctx, query, name, value).Scan(&newValue)
+	_, err := s.db.ExecContext(ctx, query, name, value)
 	if err != nil {
 		s.logger.Error("Failed to update counter",
 			zap.String("name", name),
@@ -73,11 +79,6 @@ func (s *DBStorage) UpdateCounter(name string, value int64) error {
 			zap.Error(err))
 		return fmt.Errorf("failed to update counter %s: %w", name, err)
 	}
-
-	s.logger.Debug("Counter updated",
-		zap.String("name", name),
-		zap.Int64("delta", value),
-		zap.Int64("new_value", newValue))
 
 	return nil
 }
@@ -94,11 +95,9 @@ func (s *DBStorage) UpdateGauge(name string, value float64) error {
 		VALUES ($1, $2)
 		ON CONFLICT (name) 
 		DO UPDATE SET value = $2
-		RETURNING value
 	`
 
-	var newValue float64
-	err := s.db.QueryRowContext(ctx, query, name, value).Scan(&newValue)
+	_, err := s.db.ExecContext(ctx, query, name, value)
 	if err != nil {
 		s.logger.Error("Failed to update gauge",
 			zap.String("name", name),
@@ -106,11 +105,6 @@ func (s *DBStorage) UpdateGauge(name string, value float64) error {
 			zap.Error(err))
 		return fmt.Errorf("failed to update gauge %s: %w", name, err)
 	}
-
-	s.logger.Debug("Gauge updated",
-		zap.String("name", name),
-		zap.Float64("value", value),
-		zap.Float64("new_value", newValue))
 
 	return nil
 }
@@ -214,7 +208,6 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 func (s *DBStorage) Ping() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-
 	return s.db.PingContext(ctx)
 }
 

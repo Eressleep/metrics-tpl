@@ -44,10 +44,6 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool, 
 }
 
 func (fs *FileStorage) startPeriodicSave() {
-	if fs.stopChan == nil {
-		fs.stopChan = make(chan struct{})
-	}
-
 	fs.wg.Add(1)
 	go func() {
 		defer fs.wg.Done()
@@ -123,14 +119,8 @@ func (fs *FileStorage) GetAllCounters() map[string]int64 {
 
 func (fs *FileStorage) saveToFile() error {
 	fs.dataMu.RLock()
-	gauges := make(map[string]float64, len(fs.gauges))
-	for k, v := range fs.gauges {
-		gauges[k] = v
-	}
-	counters := make(map[string]int64, len(fs.counters))
-	for k, v := range fs.counters {
-		counters[k] = v
-	}
+	gauges := fs.MemStorage.GetAllGauges()
+	counters := fs.MemStorage.GetAllCounters()
 	fs.dataMu.RUnlock()
 
 	var metrics []model.Metrics
@@ -201,9 +191,6 @@ func (fs *FileStorage) loadFromFile() error {
 	fs.dataMu.Lock()
 	defer fs.dataMu.Unlock()
 
-	fs.gauges = make(map[string]float64)
-	fs.counters = make(map[string]int64)
-
 	for _, metric := range metrics {
 		switch metric.MType {
 		case model.Gauge:
@@ -228,6 +215,5 @@ func (fs *FileStorage) Stop() error {
 	}
 
 	fs.wg.Wait()
-
 	return fs.saveToFile()
 }
