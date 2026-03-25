@@ -11,7 +11,6 @@ import (
 	"github.com/Eressleep/metrics-tpl/pkg/retry"
 	"github.com/jackc/pgerrcode"
 	"github.com/lib/pq"
-	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
 
@@ -151,14 +150,6 @@ func (s *DBStorage) queryWithRetry(ctx context.Context, query string, args ...in
 	}, nil)
 
 	return rows, err
-}
-
-type errorRow struct {
-	err error
-}
-
-func (r *errorRow) Scan(dest ...interface{}) error {
-	return r.err
 }
 
 func (s *DBStorage) UpdateCounter(name string, value int64) error {
@@ -319,6 +310,10 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 		result[name] = value
 	}
 
+	if err := rows.Err(); err != nil {
+		s.logger.Error("Error iterating gauges", zap.Error(err))
+	}
+
 	return result
 }
 
@@ -346,6 +341,10 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 			continue
 		}
 		result[name] = value
+	}
+
+	if err := rows.Err(); err != nil {
+		s.logger.Error("Error iterating counters", zap.Error(err))
 	}
 
 	return result
