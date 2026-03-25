@@ -11,7 +11,7 @@ type Collector struct {
 	metrics      *metrics.Metrics
 	pollInterval time.Duration
 	stopChan     chan struct{}
-	isRunning    atomic.Bool // Флаг для отслеживания состояния
+	isRunning    atomic.Bool
 }
 
 func NewCollector(pollInterval time.Duration) *Collector {
@@ -24,7 +24,7 @@ func NewCollector(pollInterval time.Duration) *Collector {
 
 func (c *Collector) Start() {
 	if c.isRunning.Load() {
-		return // Уже запущен
+		return
 	}
 	c.isRunning.Store(true)
 	c.stopChan = make(chan struct{})

@@ -373,7 +373,7 @@ func TestServerShutdownTimeout(t *testing.T) {
 			done <- false
 			return
 		}
-		defer resp.Body.Close() // <-- ВАЖНО: закрываем тело ответа
+		defer resp.Body.Close()
 		done <- true
 	}()
 

@@ -23,24 +23,20 @@ func NewDBStorage(dsn string, logger *zap.Logger) (*DBStorage, error) {
 		logger, _ = zap.NewProduction()
 	}
 
-	// Выполняем миграции
 	m := migrator.NewMigrator(logger)
 	if err := m.Up(dsn); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	// Подключаемся к БД
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Настройка пула соединений
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(25)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	// Проверяем соединение
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -173,7 +169,6 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 		result[name] = value
 	}
 
-	// Проверяем ошибки после итерации
 	if err := rows.Err(); err != nil {
 		s.logger.Error("Error iterating gauges", zap.Error(err))
 	}
@@ -207,7 +202,6 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 		result[name] = value
 	}
 
-	// Проверяем ошибки после итерации
 	if err := rows.Err(); err != nil {
 		s.logger.Error("Error iterating counters", zap.Error(err))
 	}

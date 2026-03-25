@@ -60,16 +60,25 @@ func main() {
 	finalRestore := flags.GetConfigBool(restore, "r", "RESTORE", true)
 	finalDatabaseDSN := flags.GetConfigString(databaseDSN, "d", "DATABASE_DSN", "")
 
+	isDatabaseDSNSet := flags.IsFlagSet("d") || os.Getenv("DATABASE_DSN") != ""
+
 	var memStorage storage.Storage
 	var storageType string
+	var storageErr error
 
 	if finalDatabaseDSN != "" {
 		logger.Info("Попытка подключения к PostgreSQL")
 
 		dbStorage, err := storage.NewDBStorage(finalDatabaseDSN, logger)
 		if err != nil {
-			logger.Warn("Не удалось подключиться к PostgreSQL, пробуем другие варианты",
+			storageErr = err
+			logger.Error("Не удалось подключиться к PostgreSQL",
 				zap.Error(err))
+
+			if isDatabaseDSNSet {
+				logger.Fatal("Не удалось подключиться к PostgreSQL, а DSN был явно указан",
+					zap.Error(err))
+			}
 		} else {
 			memStorage = dbStorage
 			storageType = "PostgreSQL"
@@ -77,7 +86,7 @@ func main() {
 		}
 	}
 
-	if memStorage == nil && (finalFilePath != "" || flags.IsFlagSet("f") || os.Getenv("FILE_STORAGE_PATH") != "") {
+	if memStorage == nil && !isDatabaseDSNSet && (finalFilePath != "" || flags.IsFlagSet("f") || os.Getenv("FILE_STORAGE_PATH") != "") {
 		logger.Info("Используется файловое хранилище",
 			zap.String("path", finalFilePath),
 			zap.Int("store_interval", finalStoreInterval),
@@ -98,6 +107,11 @@ func main() {
 	}
 
 	if memStorage == nil {
+		if isDatabaseDSNSet {
+			logger.Fatal("Не удалось подключиться к PostgreSQL, а DSN был явно указан",
+				zap.Error(storageErr))
+		}
+
 		logger.Info("Используется in-memory хранилище")
 		memStorage = storage.NewMemStorage()
 		storageType = "In-Memory"
