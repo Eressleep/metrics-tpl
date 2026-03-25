@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 
+	"github.com/Eressleep/metrics-tpl/pkg/retry"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
@@ -28,15 +29,27 @@ func NewMigrator(logger *zap.Logger) *Migrator {
 func (m *Migrator) Up(dsn string) error {
 	m.logger.Info("Starting database migrations")
 
-	db, err := sql.Open("postgres", dsn)
+	var db *sql.DB
+
+	err := retry.Do(nil, func() error {
+		var err error
+		db, err = sql.Open("postgres", dsn)
+		if err != nil {
+			return err
+		}
+
+		if err := db.Ping(); err != nil {
+			db.Close()
+			return err
+		}
+
+		return nil
+	}, nil)
+
 	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 	defer db.Close()
-
-	if err := db.Ping(); err != nil {
-		return fmt.Errorf("failed to ping database: %w", err)
-	}
 
 	driver, err := postgres.WithInstance(db, &postgres.Config{})
 	if err != nil {
