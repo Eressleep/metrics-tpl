@@ -285,10 +285,7 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 		result[name] = value
 	}
 
-	if err := rows.Err(); err != nil {
-		s.logger.Error("Error iterating gauges", zap.Error(err))
-		_ = err
-	}
+	s.checkRowsError(rows, "gauges")
 
 	return result
 }
@@ -328,12 +325,15 @@ func (s *DBStorage) GetAllCounters() map[string]int64 {
 		result[name] = value
 	}
 
-	if err := rows.Err(); err != nil {
-		s.logger.Error("Error iterating counters", zap.Error(err))
-		_ = err
-	}
+	s.checkRowsError(rows, "counters")
 
 	return result
+}
+
+func (s *DBStorage) checkRowsError(rows *sql.Rows, metricType string) {
+	if err := rows.Err(); err != nil {
+		s.logger.Error(fmt.Sprintf("Error iterating %s", metricType), zap.Error(err))
+	}
 }
 
 func (s *DBStorage) Ping() error {
