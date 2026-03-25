@@ -149,7 +149,15 @@ func (s *DBStorage) queryWithRetry(ctx context.Context, query string, args ...in
 		return err
 	}, nil)
 
-	return rows, err
+	if err != nil {
+		return nil, err
+	}
+
+	if rows == nil {
+		return nil, fmt.Errorf("query returned nil rows")
+	}
+
+	return rows, nil
 }
 
 func (s *DBStorage) UpdateCounter(name string, value int64) error {
