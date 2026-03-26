@@ -151,11 +151,12 @@ func main() {
 	router.GET("/", metricsHandler.GetAllMetrics)
 	router.GET("/ping", metricsHandler.PingDB)
 
-	fmt.Println("=== Registered Routes ===")
+	logger.Info("Зарегистрированные эндпоинты")
 	for _, route := range router.Routes() {
-		fmt.Printf("%s %s\n", route.Method, route.Path)
+		logger.Debug("Route registered",
+			zap.String("method", route.Method),
+			zap.String("path", route.Path))
 	}
-	fmt.Println("========================")
 
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
@@ -174,32 +175,27 @@ func main() {
 			zap.String("address", finalAddr),
 			zap.String("storage_type", storageType))
 
-		fmt.Println("\n=== Metrics Server ===")
-		fmt.Printf("Хранилище: %s\n", storageType)
-		fmt.Printf("Адрес: %s\n\n", finalAddr)
-		fmt.Println("Доступные эндпоинты:")
-		fmt.Println("  POST   /update/:type/:name/:value  (text/plain)")
-		fmt.Println("  GET    /value/:type/:name")
-		fmt.Println("  POST   /update                      (application/json)")
-		fmt.Println("  POST   /value                       (application/json)")
-		fmt.Println("  POST   /value/                      (application/json) - with slash")
-		fmt.Println("  POST   /updates                     (application/json) - batch update")
-		fmt.Println("  POST   /updates/                    (application/json) - batch update with slash")
-		fmt.Println("  GET    /")
-		fmt.Println("  GET    /ping                        (health check)")
-
 		if storageType == "File" {
-			fmt.Printf("\nФайловое хранилище:\n")
-			fmt.Printf("  - Путь: %s\n", finalFilePath)
-			fmt.Printf("  - Интервал сохранения: %d сек\n", finalStoreInterval)
-			fmt.Printf("  - Восстановление при старте: %v\n", finalRestore)
+			logger.Info("Файловое хранилище",
+				zap.String("path", finalFilePath),
+				zap.Int("store_interval", finalStoreInterval),
+				zap.Bool("restore", finalRestore))
 		} else if storageType == "PostgreSQL" {
-			fmt.Printf("\nPostgreSQL:\n")
-			fmt.Printf("  - DSN: %s\n", finalDatabaseDSN)
+			logger.Info("PostgreSQL хранилище",
+				zap.String("dsn", finalDatabaseDSN))
 		} else {
-			fmt.Println("\nIn-Memory хранилище (данные не сохраняются между перезапусками)")
+			logger.Info("In-Memory хранилище",
+				zap.String("note", "данные не сохраняются между перезапусками"))
 		}
-		fmt.Println()
+
+		logger.Info("Доступные эндпоинты",
+			zap.String("text_update", "POST /update/:type/:name/:value"),
+			zap.String("text_get", "GET /value/:type/:name"),
+			zap.String("json_update", "POST /update"),
+			zap.String("json_get", "POST /value"),
+			zap.String("batch_update", "POST /updates"),
+			zap.String("all_metrics", "GET /"),
+			zap.String("health", "GET /ping"))
 
 		if err := srv.Run(); err != nil {
 			logger.Info("Сервер остановлен", zap.Error(err))
