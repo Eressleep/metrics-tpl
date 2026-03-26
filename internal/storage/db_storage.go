@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/migrator"
@@ -15,7 +14,6 @@ import (
 type DBStorage struct {
 	db     *sql.DB
 	logger *zap.Logger
-	mu     sync.RWMutex
 }
 
 func NewDBStorage(dsn string, logger *zap.Logger) (*DBStorage, error) {
@@ -54,9 +52,6 @@ func NewDBStorage(dsn string, logger *zap.Logger) (*DBStorage, error) {
 }
 
 func (s *DBStorage) UpdateCounter(name string, value int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -80,9 +75,6 @@ func (s *DBStorage) UpdateCounter(name string, value int64) error {
 }
 
 func (s *DBStorage) UpdateGauge(name string, value float64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -109,9 +101,6 @@ func (s *DBStorage) BatchUpdate(ctx context.Context, metrics []Metrics) error {
 	if len(metrics) == 0 {
 		return nil
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -161,9 +150,6 @@ func (s *DBStorage) BatchUpdate(ctx context.Context, metrics []Metrics) error {
 }
 
 func (s *DBStorage) GetCounter(name string) (int64, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -180,9 +166,6 @@ func (s *DBStorage) GetCounter(name string) (int64, error) {
 }
 
 func (s *DBStorage) GetGauge(name string) (float64, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -199,9 +182,6 @@ func (s *DBStorage) GetGauge(name string) (float64, error) {
 }
 
 func (s *DBStorage) GetAllGauges() map[string]float64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	result := make(map[string]float64)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -232,9 +212,6 @@ func (s *DBStorage) GetAllGauges() map[string]float64 {
 }
 
 func (s *DBStorage) GetAllCounters() map[string]int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	result := make(map[string]int64)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

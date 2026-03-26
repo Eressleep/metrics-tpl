@@ -3,6 +3,7 @@ package retry
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -101,7 +102,7 @@ func isNetworkError(errStr string) bool {
 	}
 
 	for _, pattern := range networkErrors {
-		if contains(errStr, pattern) {
+		if strings.Contains(errStr, pattern) {
 			return true
 		}
 	}
@@ -121,25 +122,10 @@ func isPostgresConnectionError(errStr string) bool {
 	}
 
 	for _, pattern := range postgresErrors {
-		if contains(errStr, pattern) {
+		if strings.Contains(errStr, pattern) {
 			return true
 		}
 	}
 
-	return false
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-			findSubstring(s, substr)))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
 	return false
 }
