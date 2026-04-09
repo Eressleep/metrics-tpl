@@ -141,6 +141,5 @@ func findSubstring(s, substr string) bool {
 			return true
 		}
 	}
-
 	return false
 }
