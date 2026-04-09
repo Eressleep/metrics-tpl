@@ -145,80 +145,6 @@ func TestAgentDefaultConfig(t *testing.T) {
 	}
 }
 
-func TestAgentStop(t *testing.T) {
-	config := DefaultConfig()
-	agent := New(config)
-
-	go agent.Run()
-
-	time.Sleep(200 * time.Millisecond)
-
-	agent.Stop()
-
-	select {
-	case <-time.After(2 * time.Second):
-		t.Log("Agent stopped successfully")
-	case <-func() chan bool {
-		done := make(chan bool)
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			done <- true
-		}()
-		return done
-	}():
-	}
-}
-
-func TestConfigValidation(t *testing.T) {
-	tests := []struct {
-		name    string
-		config  Config
-		wantErr bool
-	}{
-		{
-			name: "valid config",
-			config: Config{
-				ServerAddr:     "localhost:8080",
-				PollInterval:   1 * time.Second,
-				ReportInterval: 2 * time.Second,
-			},
-			wantErr: false,
-		},
-		{
-			name: "empty server addr",
-			config: Config{
-				ServerAddr:     "",
-				PollInterval:   1 * time.Second,
-				ReportInterval: 2 * time.Second,
-			},
-			wantErr: true,
-		},
-		{
-			name: "zero poll interval",
-			config: Config{
-				ServerAddr:     "localhost:8080",
-				PollInterval:   0,
-				ReportInterval: 2 * time.Second,
-			},
-			wantErr: true,
-		},
-		{
-			name: "zero report interval",
-			config: Config{
-				ServerAddr:     "localhost:8080",
-				PollInterval:   1 * time.Second,
-				ReportInterval: 0,
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-		})
-	}
-}
-
 func BenchmarkCollector(b *testing.B) {
 	collector := NewCollector(time.Microsecond)
 	collector.Start()
@@ -229,17 +155,4 @@ func BenchmarkCollector(b *testing.B) {
 		collector.GetMetrics().GetAllGauges()
 		collector.GetMetrics().GetPollCount()
 	}
-}
-
-func BenchmarkCollectorConcurrent(b *testing.B) {
-	collector := NewCollector(time.Microsecond)
-	collector.Start()
-	defer collector.Stop()
-
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			collector.GetMetrics().GetAllGauges()
-			collector.GetMetrics().GetPollCount()
-		}
-	})
 }

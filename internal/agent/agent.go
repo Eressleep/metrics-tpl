@@ -12,6 +12,7 @@ type Config struct {
 	ServerAddr     string
 	PollInterval   time.Duration
 	ReportInterval time.Duration
+	HashKey        string
 }
 
 func DefaultConfig() *Config {
@@ -19,6 +20,7 @@ func DefaultConfig() *Config {
 		ServerAddr:     "localhost:8080",
 		PollInterval:   2 * time.Second,
 		ReportInterval: 10 * time.Second,
+		HashKey:        "",
 	}
 }
 
@@ -30,7 +32,7 @@ type Agent struct {
 
 func New(config *Config) *Agent {
 	collector := NewCollector(config.PollInterval)
-	sender := NewSender(config.ServerAddr, config.ReportInterval, collector)
+	sender := NewSender(config.ServerAddr, config.ReportInterval, collector, config.HashKey)
 
 	return &Agent{
 		config:    config,

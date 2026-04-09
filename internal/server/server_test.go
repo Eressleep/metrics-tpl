@@ -18,7 +18,7 @@ func setupTest(t *testing.T) (*Server, *storage.MemStorage, *zap.Logger) {
 	gin.SetMode(gin.TestMode)
 
 	store := storage.NewMemStorage()
-	handler := handlers.NewMetricsHandler(store)
+	handler := handlers.NewMetricsHandler(store, "")
 	logger := zaptest.NewLogger(t)
 
 	config := &Config{
@@ -43,7 +43,7 @@ func TestNewDefaultConfig(t *testing.T) {
 
 func TestNew(t *testing.T) {
 	store := storage.NewMemStorage()
-	handler := handlers.NewMetricsHandler(store)
+	handler := handlers.NewMetricsHandler(store, "")
 	config := NewDefaultConfig()
 
 	server := New(config, handler)
@@ -67,7 +67,7 @@ func TestNew(t *testing.T) {
 
 func TestNewWithLogger(t *testing.T) {
 	store := storage.NewMemStorage()
-	handler := handlers.NewMetricsHandler(store)
+	handler := handlers.NewMetricsHandler(store, "")
 	config := NewDefaultConfig()
 	logger := zaptest.NewLogger(t)
 
@@ -80,7 +80,7 @@ func TestNewWithLogger(t *testing.T) {
 
 func TestNewWithRouter(t *testing.T) {
 	store := storage.NewMemStorage()
-	handler := handlers.NewMetricsHandler(store)
+	handler := handlers.NewMetricsHandler(store, "")
 	config := NewDefaultConfig()
 	logger := zaptest.NewLogger(t)
 
@@ -268,7 +268,7 @@ func TestServerConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := storage.NewMemStorage()
-			handler := handlers.NewMetricsHandler(store)
+			handler := handlers.NewMetricsHandler(store, "")
 			logger := zaptest.NewLogger(t)
 
 			config := &Config{
@@ -324,7 +324,7 @@ func TestServerMultipleStops(t *testing.T) {
 
 func TestServerWithCustomRouter(t *testing.T) {
 	store := storage.NewMemStorage()
-	handler := handlers.NewMetricsHandler(store)
+	handler := handlers.NewMetricsHandler(store, "")
 	logger := zaptest.NewLogger(t)
 
 	router := gin.New()
@@ -393,7 +393,7 @@ func TestServerShutdownTimeout(t *testing.T) {
 
 func TestServerConstructors(t *testing.T) {
 	store := storage.NewMemStorage()
-	handler := handlers.NewMetricsHandler(store)
+	handler := handlers.NewMetricsHandler(store, "")
 
 	t.Run("New", func(t *testing.T) {
 		config := NewDefaultConfig()
