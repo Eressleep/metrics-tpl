@@ -32,6 +32,7 @@ func main() {
 	filePath := flag.String("f", defaultFilePath, "путь до файла для сохранения метрик")
 	restore := flag.Bool("r", true, "загружать ранее сохранённые значения из файла при старте")
 	databaseDSN := flag.String("d", "", "строка подключения к PostgreSQL")
+	hashKey := flag.String("k", "", "ключ для проверки HMAC-SHA256 хеша")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Использование: %s [флаги]\n", os.Args[0])
@@ -41,12 +42,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -f=<ЗНАЧЕНИЕ>   путь до файла для сохранения метрик (по умолчанию %s)\n", defaultFilePath)
 		fmt.Fprintf(os.Stderr, "  -r=<ЗНАЧЕНИЕ>   загружать ранее сохранённые значения из файла (по умолчанию true)\n")
 		fmt.Fprintf(os.Stderr, "  -d=<ЗНАЧЕНИЕ>   строка подключения к PostgreSQL\n")
+		fmt.Fprintf(os.Stderr, "  -k=<ЗНАЧЕНИЕ>   ключ для проверки HMAC-SHA256 хеша\n")
 		fmt.Fprintf(os.Stderr, "\nПеременные окружения:\n")
 		fmt.Fprintf(os.Stderr, "  ADDRESS          адрес эндпоинта HTTP-сервера\n")
 		fmt.Fprintf(os.Stderr, "  STORE_INTERVAL   интервал сохранения метрик на диск (секунды)\n")
 		fmt.Fprintf(os.Stderr, "  FILE_STORAGE_PATH путь до файла для сохранения метрик\n")
 		fmt.Fprintf(os.Stderr, "  RESTORE          загружать ранее сохранённые значения (true/false)\n")
 		fmt.Fprintf(os.Stderr, "  DATABASE_DSN     строка подключения к PostgreSQL\n")
+		fmt.Fprintf(os.Stderr, "  KEY              ключ для проверки HMAC-SHA256 хеша\n")
 	}
 	flag.Parse()
 
@@ -59,6 +62,7 @@ func main() {
 	finalFilePath := flags.GetConfigString(filePath, "f", "FILE_STORAGE_PATH", defaultFilePath)
 	finalRestore := flags.GetConfigBool(restore, "r", "RESTORE", true)
 	finalDatabaseDSN := flags.GetConfigString(databaseDSN, "d", "DATABASE_DSN", "")
+	finalHashKey := flags.GetConfigString(hashKey, "k", "KEY", "")
 
 	isDatabaseDSNSet := flags.IsFlagSet("d") || os.Getenv("DATABASE_DSN") != ""
 
@@ -121,7 +125,11 @@ func main() {
 		zap.String("type", storageType),
 		zap.String("address", finalAddr))
 
-	metricsHandler := handlers.NewMetricsHandler(memStorage)
+	if finalHashKey != "" {
+		logger.Info("Используется HMAC-SHA256 проверка подписи")
+	}
+
+	metricsHandler := handlers.NewMetricsHandler(memStorage, finalHashKey)
 
 	config := server.NewDefaultConfig()
 	config.Addr = finalAddr
@@ -130,18 +138,27 @@ func main() {
 	gin.SetMode(config.Mode)
 	router := gin.New()
 
-	router.Use(
-		middleware.GzipMiddleware(),
-		middleware.Logger(logger, middleware.LoggerConfig{
-			SkipPaths: []string{"/ping"},
-		}),
-		gin.Recovery(),
-	)
+	if finalHashKey != "" {
+		router.Use(middleware.HashResponseMiddleware(finalHashKey, logger))
+	}
+
+	router.Use(middleware.GzipMiddleware())
+
+	router.Use(middleware.Logger(logger, middleware.LoggerConfig{
+		SkipPaths: []string{"/ping"},
+	}))
+
+	router.Use(gin.Recovery())
+
+	if finalHashKey != "" {
+		router.Use(middleware.HashCheckMiddleware(finalHashKey, logger))
+	}
 
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
 	router.GET("/value/:type/:name", metricsHandler.GetValue)
 
 	router.POST("/update", metricsHandler.UpdateJSON)
+	router.POST("/update/", metricsHandler.UpdateJSON)
 	router.POST("/value", metricsHandler.GetValueJSON)
 	router.POST("/value/", metricsHandler.GetValueJSON)
 
@@ -198,6 +215,11 @@ func main() {
 			fmt.Printf("  - DSN: %s\n", finalDatabaseDSN)
 		} else {
 			fmt.Println("\nIn-Memory хранилище (данные не сохраняются между перезапусками)")
+		}
+
+		if finalHashKey != "" {
+			fmt.Printf("\nБезопасность:\n")
+			fmt.Printf("  - HMAC-SHA256 подпись: включена\n")
 		}
 		fmt.Println()
 

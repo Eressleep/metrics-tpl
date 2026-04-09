@@ -26,11 +26,13 @@ func isValidMetricName(name string) bool {
 
 type MetricsHandler struct {
 	storage storage.Storage
+	hashKey string
 }
 
-func NewMetricsHandler(storage storage.Storage) *MetricsHandler {
+func NewMetricsHandler(storage storage.Storage, hashKey string) *MetricsHandler {
 	return &MetricsHandler{
 		storage: storage,
+		hashKey: hashKey,
 	}
 }
 

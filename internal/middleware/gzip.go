@@ -10,59 +10,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type gzipWriter struct {
+type gzipResponseWriter struct {
 	gin.ResponseWriter
-	writer *gzip.Writer
-	buffer *bytes.Buffer
+	gzipWriter *gzip.Writer
 }
 
-func (g *gzipWriter) Write(data []byte) (int, error) {
-	return g.buffer.Write(data)
+func (w *gzipResponseWriter) Write(data []byte) (int, error) {
+	return w.gzipWriter.Write(data)
 }
 
-func (g *gzipWriter) WriteString(s string) (int, error) {
-	return g.buffer.WriteString(s)
+func (w *gzipResponseWriter) WriteString(s string) (int, error) {
+	return w.gzipWriter.Write([]byte(s))
 }
 
-func (g *gzipWriter) WriteHeader(code int) {
-	g.ResponseWriter.WriteHeader(code)
-}
-
-func (g *gzipWriter) Flush() {
-	if g.buffer.Len() > 0 {
-		data := g.buffer.Bytes()
-		compressedData, err := compressData(data)
-		if err != nil {
-			g.ResponseWriter.Write(data)
-			return
-		}
-
-		g.ResponseWriter.Header().Set("Content-Encoding", "gzip")
-		g.ResponseWriter.Header().Set("Vary", "Accept-Encoding")
-
-		g.ResponseWriter.Write(compressedData)
-		g.buffer.Reset()
-	}
-
-	if flusher, ok := g.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
-func compressData(data []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	gzipWriter := gzip.NewWriter(&buf)
-
-	_, err := gzipWriter.Write(data)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := gzipWriter.Close(); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
+func shouldCompress(contentType string) bool {
+	return strings.Contains(contentType, "application/json") ||
+		strings.Contains(contentType, "text/html")
 }
 
 func GzipMiddleware() gin.HandlerFunc {
@@ -85,33 +48,61 @@ func GzipMiddleware() gin.HandlerFunc {
 
 			c.Request.Body = io.NopCloser(bytes.NewReader(decompressed))
 			c.Request.ContentLength = int64(len(decompressed))
+			c.Request.Header.Set("Content-Encoding", "")
 		}
 
 		acceptsGzip := strings.Contains(c.GetHeader("Accept-Encoding"), "gzip")
+		if !acceptsGzip {
+			c.Next()
+			return
+		}
+
+		originalWriter := c.Writer
 
 		buffer := &bytes.Buffer{}
-		gzWriter := &gzipWriter{
-			ResponseWriter: c.Writer,
-			writer:         gzip.NewWriter(buffer),
+
+		c.Writer = &responseBuffer{
+			ResponseWriter: originalWriter,
 			buffer:         buffer,
 		}
 
-		c.Writer = gzWriter
-
 		c.Next()
 
-		contentType := c.Writer.Header().Get("Content-Type")
-		shouldCompress := acceptsGzip &&
-			(strings.Contains(contentType, "application/json") ||
-				strings.Contains(contentType, "text/html"))
+		contentType := originalWriter.Header().Get("Content-Type")
 
-		if shouldCompress && buffer.Len() > 0 {
-			gzWriter.Flush()
+		if shouldCompress(contentType) && buffer.Len() > 0 {
+			originalWriter.Header().Set("Content-Encoding", "gzip")
+			originalWriter.Header().Set("Vary", "Accept-Encoding")
+
+			gz := gzip.NewWriter(originalWriter)
+			defer gz.Close()
+
+			_, err := gz.Write(buffer.Bytes())
+			if err != nil {
+				originalWriter.Header().Del("Content-Encoding")
+				originalWriter.Write(buffer.Bytes())
+			}
 		} else {
-			c.Writer = gzWriter.ResponseWriter
 			if buffer.Len() > 0 {
-				c.Writer.Write(buffer.Bytes())
+				originalWriter.Write(buffer.Bytes())
 			}
 		}
 	}
+}
+
+type responseBuffer struct {
+	gin.ResponseWriter
+	buffer *bytes.Buffer
+}
+
+func (w *responseBuffer) Write(data []byte) (int, error) {
+	return w.buffer.Write(data)
+}
+
+func (w *responseBuffer) WriteString(s string) (int, error) {
+	return w.buffer.WriteString(s)
+}
+
+func (w *responseBuffer) WriteHeader(code int) {
+	w.ResponseWriter.WriteHeader(code)
 }

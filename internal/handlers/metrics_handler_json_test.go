@@ -15,7 +15,7 @@ import (
 func setupJSONTest() (*gin.Engine, storage.Storage) {
 	gin.SetMode(gin.TestMode)
 	store := storage.NewMemStorage()
-	handler := NewMetricsHandler(store)
+	handler := NewMetricsHandler(store, "")
 	router := gin.New()
 
 	router.POST("/update", handler.UpdateJSON)

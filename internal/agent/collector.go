@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -12,6 +13,7 @@ type Collector struct {
 	pollInterval time.Duration
 	stopChan     chan struct{}
 	isRunning    atomic.Bool
+	mu           sync.RWMutex
 }
 
 func NewCollector(pollInterval time.Duration) *Collector {
@@ -40,12 +42,17 @@ func (c *Collector) Stop() {
 }
 
 func (c *Collector) GetMetrics() *metrics.Metrics {
-	return c.metrics
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.metrics.Copy()
 }
 
 func (c *Collector) collectLoop() {
 	ticker := time.NewTicker(c.pollInterval)
 	defer ticker.Stop()
+
+	c.collect()
 
 	for {
 		select {
@@ -61,6 +68,10 @@ func (c *Collector) collect() {
 	if !c.isRunning.Load() {
 		return
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.metrics.UpdateRuntime()
 	c.metrics.UpdateRandom()
 	c.metrics.IncrementPollCount()
