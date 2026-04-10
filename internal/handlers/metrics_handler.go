@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/model"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
@@ -102,6 +105,82 @@ func (h *MetricsHandler) UpdateJSON(c *gin.Context) {
 	}
 
 	c.Data(http.StatusOK, "application/json", responseData)
+}
+
+func (h *MetricsHandler) UpdateBatch(c *gin.Context) {
+	if c.GetHeader("Content-Type") != "application/json" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Content-Type must be application/json"})
+		return
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
+		return
+	}
+	defer c.Request.Body.Close()
+
+	var batch []model.Metrics
+	if err := json.Unmarshal(body, &batch); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON format: " + err.Error()})
+		return
+	}
+
+	if len(batch) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "empty batch"})
+		return
+	}
+
+	metrics := make([]storage.Metrics, 0, len(batch))
+	for _, metric := range batch {
+		if metric.ID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "metric ID is required"})
+			return
+		}
+
+		if !isValidMetricName(metric.ID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid metric name format: %s", metric.ID)})
+			return
+		}
+
+		if metric.MType != model.Counter && metric.MType != model.Gauge {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unknown metric type: %s", metric.MType)})
+			return
+		}
+
+		switch metric.MType {
+		case model.Counter:
+			if metric.Delta == nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("delta is required for counter metric: %s", metric.ID)})
+				return
+			}
+			metrics = append(metrics, storage.Metrics{
+				ID:    metric.ID,
+				MType: metric.MType,
+				Delta: metric.Delta,
+			})
+		case model.Gauge:
+			if metric.Value == nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("value is required for gauge metric: %s", metric.ID)})
+				return
+			}
+			metrics = append(metrics, storage.Metrics{
+				ID:    metric.ID,
+				MType: metric.MType,
+				Value: metric.Value,
+			})
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	if err := h.storage.BatchUpdate(ctx, metrics); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(http.StatusOK)
 }
 
 func (h *MetricsHandler) GetValueJSON(c *gin.Context) {
@@ -320,5 +399,19 @@ func (h *MetricsHandler) handleGauge(name, valueStr string) error {
 }
 
 func (h *MetricsHandler) Ping(c *gin.Context) {
+	c.String(http.StatusOK, "pong")
+}
+
+func (h *MetricsHandler) PingDB(c *gin.Context) {
+	type pinger interface {
+		Ping() error
+	}
+
+	if pinger, ok := h.storage.(pinger); ok {
+		if err := pinger.Ping(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "database connection failed"})
+			return
+		}
+	}
 	c.String(http.StatusOK, "pong")
 }

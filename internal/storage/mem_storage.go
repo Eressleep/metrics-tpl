@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"sync"
 )
@@ -42,6 +43,36 @@ func (s *MemStorage) UpdateGauge(name string, value float64) error {
 	return nil
 }
 
+func (s *MemStorage) BatchUpdate(ctx context.Context, metrics []Metrics) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	for _, m := range metrics {
+		switch m.MType {
+		case "counter":
+			if m.Delta != nil {
+				s.counters[m.ID] += *m.Delta
+			}
+		case "gauge":
+			if m.Value != nil {
+				s.gauges[m.ID] = *m.Value
+			}
+		}
+	}
+
+	return nil
+}
+
 func (s *MemStorage) GetCounter(name string) (int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -66,43 +97,22 @@ func (s *MemStorage) GetGauge(name string) (float64, error) {
 
 func (s *MemStorage) GetAllGauges() map[string]float64 {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	gauges := make(map[string]float64, len(s.gauges))
 	for k, v := range s.gauges {
 		gauges[k] = v
 	}
-
-	s.mu.RUnlock()
 	return gauges
 }
 
 func (s *MemStorage) GetAllCounters() map[string]int64 {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	counters := make(map[string]int64, len(s.counters))
 	for k, v := range s.counters {
 		counters[k] = v
 	}
-
-	s.mu.RUnlock()
 	return counters
-}
-
-func (s *MemStorage) GetStats() map[string]interface{} {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return map[string]interface{}{
-		"gauges_count":   len(s.gauges),
-		"counters_count": len(s.counters),
-		"total_metrics":  len(s.gauges) + len(s.counters),
-	}
-}
-
-func (s *MemStorage) Reset() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.gauges = make(map[string]float64)
-	s.counters = make(map[string]int64)
 }

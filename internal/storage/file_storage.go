@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"sync"
@@ -44,10 +45,6 @@ func NewFileStorage(filePath string, storeInterval time.Duration, restore bool, 
 }
 
 func (fs *FileStorage) startPeriodicSave() {
-	if fs.stopChan == nil {
-		fs.stopChan = make(chan struct{})
-	}
-
 	fs.wg.Add(1)
 	go func() {
 		defer fs.wg.Done()
@@ -97,6 +94,38 @@ func (fs *FileStorage) UpdateGauge(name string, value float64) error {
 	return nil
 }
 
+func (fs *FileStorage) BatchUpdate(ctx context.Context, metrics []Metrics) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	fs.dataMu.Lock()
+	defer fs.dataMu.Unlock()
+
+	for _, m := range metrics {
+		switch m.MType {
+		case "counter":
+			if m.Delta != nil {
+				if err := fs.MemStorage.UpdateCounter(m.ID, *m.Delta); err != nil {
+					return err
+				}
+			}
+		case "gauge":
+			if m.Value != nil {
+				if err := fs.MemStorage.UpdateGauge(m.ID, *m.Value); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	if fs.storeInterval == 0 {
+		return fs.saveToFile()
+	}
+
+	return nil
+}
+
 func (fs *FileStorage) GetCounter(name string) (int64, error) {
 	fs.dataMu.RLock()
 	defer fs.dataMu.RUnlock()
@@ -123,14 +152,8 @@ func (fs *FileStorage) GetAllCounters() map[string]int64 {
 
 func (fs *FileStorage) saveToFile() error {
 	fs.dataMu.RLock()
-	gauges := make(map[string]float64, len(fs.gauges))
-	for k, v := range fs.gauges {
-		gauges[k] = v
-	}
-	counters := make(map[string]int64, len(fs.counters))
-	for k, v := range fs.counters {
-		counters[k] = v
-	}
+	gauges := fs.MemStorage.GetAllGauges()
+	counters := fs.MemStorage.GetAllCounters()
 	fs.dataMu.RUnlock()
 
 	var metrics []model.Metrics
@@ -228,6 +251,5 @@ func (fs *FileStorage) Stop() error {
 	}
 
 	fs.wg.Wait()
-
 	return fs.saveToFile()
 }

@@ -40,7 +40,7 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	gin.SetMode(config.Mode)
 
 	router := gin.New()
-	router.HandleMethodNotAllowed = true // Включаем поддержку 405 Method Not Allowed
+	router.HandleMethodNotAllowed = true
 	router.Use(gin.Logger(), gin.Recovery())
 
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
@@ -76,7 +76,6 @@ func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, rout
 		return NewWithLogger(config, metricsHandler, logger)
 	}
 
-	// Убедимся, что включена поддержка 405 даже в кастомном роутере
 	router.HandleMethodNotAllowed = true
 
 	httpSrv := &http.Server{
