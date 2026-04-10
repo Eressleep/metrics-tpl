@@ -44,7 +44,6 @@ func (c *Collector) Stop() {
 func (c *Collector) GetMetrics() *metrics.Metrics {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
 	return c.metrics.Copy()
 }
 
@@ -73,6 +72,7 @@ func (c *Collector) collect() {
 	defer c.mu.Unlock()
 
 	c.metrics.UpdateRuntime()
+	c.metrics.UpdateGopsutil()
 	c.metrics.UpdateRandom()
 	c.metrics.IncrementPollCount()
 }
