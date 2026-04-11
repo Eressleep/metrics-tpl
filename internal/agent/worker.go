@@ -15,6 +15,8 @@ type WorkerPool struct {
 	workers    int
 	jobs       chan Job
 	client     *MetricsClient
+	serverAddr string
+	hashKey    string
 	wg         sync.WaitGroup
 	stopChan   chan struct{}
 	mu         sync.Mutex
@@ -26,11 +28,25 @@ func NewWorkerPool(workers int, serverAddr, hashKey string) *WorkerPool {
 		workers = 1
 	}
 	return &WorkerPool{
-		workers:  workers,
-		jobs:     make(chan Job, workers*100),
-		client:   NewMetricsClient(serverAddr, hashKey),
-		stopChan: make(chan struct{}),
+		workers:    workers,
+		jobs:       make(chan Job, workers*100),
+		client:     NewMetricsClient(serverAddr, hashKey),
+		serverAddr: serverAddr,
+		hashKey:    hashKey,
+		stopChan:   make(chan struct{}),
 	}
+}
+
+func (p *WorkerPool) GetServerAddr() string {
+	return p.serverAddr
+}
+
+func (p *WorkerPool) GetHashKey() string {
+	return p.hashKey
+}
+
+func (p *WorkerPool) GetWorkersCount() int {
+	return p.workers
 }
 
 func (p *WorkerPool) Start() {
