@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Check branch name
         run: |
-          echo "test"
+          echo "test ci/cd"
 
   branchtest:
     runs-on: ubuntu-latest
