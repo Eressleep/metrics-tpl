@@ -7,14 +7,6 @@ on:
       - main
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check branch name
-        run: |
-          echo "test ci/cd"
-
   branchtest:
     runs-on: ubuntu-latest
 
