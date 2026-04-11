@@ -1,21 +1,11 @@
 package agent
 
 import (
-	"bytes"
-	_ "compress/gzip"
-	"encoding/json"
-	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
-
-	"github.com/Eressleep/metrics-tpl/internal/model"
-	"github.com/Eressleep/metrics-tpl/pkg/hash"
 )
 
 type Config struct {
@@ -39,27 +29,25 @@ func DefaultConfig() *Config {
 type Agent struct {
 	config    *Config
 	collector *Collector
-	client    *http.Client
+	pool      *WorkerPool
 	stopChan  chan struct{}
 }
 
 func New(config *Config) *Agent {
+	collector := NewCollector(config.PollInterval)
+	pool := NewWorkerPool(config.RateLimit, config.ServerAddr, config.HashKey)
+
 	return &Agent{
 		config:    config,
-		collector: NewCollector(config.PollInterval),
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:    100,
-				IdleConnTimeout: 90 * time.Second,
-			},
-		},
-		stopChan: make(chan struct{}),
+		collector: collector,
+		pool:      pool,
+		stopChan:  make(chan struct{}),
 	}
 }
 
 func (a *Agent) Run() {
 	a.collector.Start()
+	a.pool.Start()
 
 	go a.reportLoop()
 
@@ -80,79 +68,40 @@ func (a *Agent) reportLoop() {
 	ticker := time.NewTicker(a.config.ReportInterval)
 	defer ticker.Stop()
 
-	a.sendAllMetrics()
+	a.sendMetrics()
 
 	for {
 		select {
 		case <-a.stopChan:
 			return
 		case <-ticker.C:
-			a.sendAllMetrics()
+			a.sendMetrics()
 		}
 	}
 }
 
-func (a *Agent) sendAllMetrics() {
+func (a *Agent) sendMetrics() {
 	m := a.collector.GetMetrics()
 	metrics := m.ToMetricsSlice()
 
-	log.Printf("Sending batch of %d metrics", len(metrics))
+	log.Printf("Sending %d metrics to worker pool", len(metrics))
 
-	err := a.sendBatch(metrics, true)
-	if err != nil {
-		if strings.Contains(err.Error(), "hash") || strings.Contains(err.Error(), "400") {
-			log.Printf("Hash verification failed, retrying without hash")
-			err = a.sendBatch(metrics, false)
-		}
-		if err != nil {
-			log.Printf("Batch send failed: %v", err)
-		}
+	for _, metric := range metrics {
+		a.pool.Submit(metric)
 	}
-}
-
-func (a *Agent) sendBatch(batch []model.Metrics, withHash bool) error {
-	url := fmt.Sprintf("http://%s/updates", a.config.ServerAddr)
-
-	data, err := json.Marshal(batch)
-	if err != nil {
-		return fmt.Errorf("error marshaling batch: %w", err)
-	}
-
-	compressedData, err := compressData(data)
-	if err != nil {
-		return fmt.Errorf("error compressing batch: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(compressedData))
-	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("Accept-Encoding", "gzip")
-
-	if withHash && a.config.HashKey != "" {
-		req.Header.Set("HashSHA256", hash.ComputeHMAC(compressedData, a.config.HashKey))
-	}
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("error sending batch: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(respBody))
-	}
-
-	log.Printf("Successfully sent batch, status: %d", resp.StatusCode)
-	return nil
 }
 
 func (a *Agent) Stop() {
+	log.Println("Stopping agent...")
+
 	a.collector.Stop()
-	close(a.stopChan)
+	a.pool.Stop()
+
+	select {
+	case <-a.stopChan:
+	default:
+		close(a.stopChan)
+	}
+
+	log.Println("Agent stopped")
 }

@@ -2,11 +2,11 @@ package metrics
 
 import (
 	"fmt"
-	"github.com/Eressleep/metrics-tpl/internal/model"
 	"math/rand"
 	"runtime"
 	"sync"
 
+	"github.com/Eressleep/metrics-tpl/internal/model"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 )
@@ -119,10 +119,8 @@ func (m *Metrics) IncrementPollCount() {
 	m.PollCount++
 }
 
-func (m *Metrics) GetAllGauges() map[string]float64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+// getAllGaugesUnsafe возвращает все gauge метрики БЕЗ блокировки
+func (m *Metrics) getAllGaugesUnsafe() map[string]float64 {
 	gauges := map[string]float64{
 		"Alloc":         m.Alloc,
 		"BuckHashSys":   m.BuckHashSys,
@@ -163,59 +161,26 @@ func (m *Metrics) GetAllGauges() map[string]float64 {
 	return gauges
 }
 
+// GetAllGauges возвращает все gauge метрики (потокобезопасно)
+func (m *Metrics) GetAllGauges() map[string]float64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.getAllGaugesUnsafe()
+}
+
 func (m *Metrics) ToMetricsSlice() []model.Metrics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var result []model.Metrics
 
-	gauges := map[string]float64{
-		"Alloc":         m.Alloc,
-		"BuckHashSys":   m.BuckHashSys,
-		"Frees":         m.Frees,
-		"GCCPUFraction": m.GCCPUFraction,
-		"GCSys":         m.GCSys,
-		"HeapAlloc":     m.HeapAlloc,
-		"HeapIdle":      m.HeapIdle,
-		"HeapInuse":     m.HeapInuse,
-		"HeapObjects":   m.HeapObjects,
-		"HeapReleased":  m.HeapReleased,
-		"HeapSys":       m.HeapSys,
-		"LastGC":        m.LastGC,
-		"Lookups":       m.Lookups,
-		"MCacheInuse":   m.MCacheInuse,
-		"MCacheSys":     m.MCacheSys,
-		"MSpanInuse":    m.MSpanInuse,
-		"MSpanSys":      m.MSpanSys,
-		"Mallocs":       m.Mallocs,
-		"NextGC":        m.NextGC,
-		"NumForcedGC":   m.NumForcedGC,
-		"NumGC":         m.NumGC,
-		"OtherSys":      m.OtherSys,
-		"PauseTotalNs":  m.PauseTotalNs,
-		"StackInuse":    m.StackInuse,
-		"StackSys":      m.StackSys,
-		"Sys":           m.Sys,
-		"TotalAlloc":    m.TotalAlloc,
-		"RandomValue":   m.RandomValue,
-		"TotalMemory":   m.TotalMemory,
-		"FreeMemory":    m.FreeMemory,
-	}
+	gauges := m.getAllGaugesUnsafe()
 
 	for name, val := range gauges {
 		v := val
 		result = append(result, model.Metrics{
 			ID:    name,
-			MType: "gauge",
-			Value: &v,
-		})
-	}
-
-	for i, cpuPercent := range m.CPUutilization1 {
-		v := cpuPercent
-		result = append(result, model.Metrics{
-			ID:    fmt.Sprintf("CPUutilization%d", i+1),
-			MType: "gauge",
+			MType: model.Gauge,
 			Value: &v,
 		})
 	}
@@ -223,19 +188,21 @@ func (m *Metrics) ToMetricsSlice() []model.Metrics {
 	pollCount := m.PollCount
 	result = append(result, model.Metrics{
 		ID:    "PollCount",
-		MType: "counter",
+		MType: model.Counter,
 		Delta: &pollCount,
 	})
 
 	return result
 }
 
+// GetPollCount возвращает значение счетчика PollCount (потокобезопасно)
 func (m *Metrics) GetPollCount() int64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.PollCount
 }
 
+// Copy создает копию метрик (потокобезопасно)
 func (m *Metrics) Copy() *Metrics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

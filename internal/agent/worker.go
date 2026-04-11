@@ -28,6 +28,8 @@ type WorkerPool struct {
 	client     *http.Client
 	wg         sync.WaitGroup
 	stopChan   chan struct{}
+	mu         sync.Mutex
+	jobsClosed bool
 }
 
 func NewWorkerPool(workers int, serverAddr, hashKey string) *WorkerPool {
@@ -46,7 +48,8 @@ func NewWorkerPool(workers int, serverAddr, hashKey string) *WorkerPool {
 				IdleConnTimeout: 90 * time.Second,
 			},
 		},
-		stopChan: make(chan struct{}),
+		stopChan:   make(chan struct{}),
+		jobsClosed: false,
 	}
 }
 
@@ -59,19 +62,35 @@ func (p *WorkerPool) Start() {
 }
 
 func (p *WorkerPool) Stop() {
-	close(p.stopChan)
-	p.wg.Wait()
-	close(p.jobs)
-	log.Println("Worker pool stopped")
-}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-func (p *WorkerPool) Submit(metric model.Metrics) {
 	select {
-	case p.jobs <- Job{Metric: metric}:
 	case <-p.stopChan:
 		return
 	default:
+		close(p.stopChan)
+	}
+
+	p.wg.Wait()
+
+	if !p.jobsClosed {
+		close(p.jobs)
+		p.jobsClosed = true
+	}
+
+	log.Println("Worker pool stopped")
+}
+
+func (p *WorkerPool) Submit(metric model.Metrics) bool {
+	select {
+	case p.jobs <- Job{Metric: metric}:
+		return true
+	case <-p.stopChan:
+		return false
+	default:
 		log.Printf("Job queue full, dropping metric: %s", metric.ID)
+		return false
 	}
 }
 
