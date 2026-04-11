@@ -1,4 +1,6 @@
-package models
+package model
+
+//go:generate easyjson -all metrics.go
 
 const (
 	Counter = "counter"
@@ -17,3 +19,5 @@ type Metrics struct {
 	Value *float64 `json:"value,omitempty"`
 	Hash  string   `json:"hash,omitempty"`
 }
+
+type BatchMetrics []Metrics
