@@ -7,6 +7,14 @@ on:
       - main
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check branch name
+        run: |
+          echo "test"
+
   branchtest:
     runs-on: ubuntu-latest
 
