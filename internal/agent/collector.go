@@ -14,6 +14,7 @@ type Collector struct {
 	stopChan     chan struct{}
 	isRunning    atomic.Bool
 	mu           sync.RWMutex
+	wg           sync.WaitGroup
 }
 
 func NewCollector(pollInterval time.Duration) *Collector {
@@ -30,6 +31,7 @@ func (c *Collector) Start() {
 	}
 	c.isRunning.Store(true)
 	c.stopChan = make(chan struct{})
+	c.wg.Add(1)
 	go c.collectLoop()
 }
 
@@ -38,7 +40,7 @@ func (c *Collector) Stop() {
 		return
 	}
 	close(c.stopChan)
-	time.Sleep(10 * time.Millisecond)
+	c.wg.Wait()
 }
 
 func (c *Collector) GetMetrics() *metrics.Metrics {
@@ -48,6 +50,8 @@ func (c *Collector) GetMetrics() *metrics.Metrics {
 }
 
 func (c *Collector) collectLoop() {
+	defer c.wg.Done()
+
 	ticker := time.NewTicker(c.pollInterval)
 	defer ticker.Stop()
 
