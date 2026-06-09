@@ -14,8 +14,8 @@ type MemStorage struct {
 
 func NewMemStorage() *MemStorage {
 	return &MemStorage{
-		gauges:   make(map[string]float64),
-		counters: make(map[string]int64),
+		gauges:   make(map[string]float64, 100),
+		counters: make(map[string]int64, 10),
 	}
 }
 
@@ -25,9 +25,8 @@ func (s *MemStorage) UpdateCounter(name string, value int64) error {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.counters[name] += value
+	s.mu.Unlock()
 	return nil
 }
 
@@ -37,9 +36,8 @@ func (s *MemStorage) UpdateGauge(name string, value float64) error {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.gauges[name] = value
+	s.mu.Unlock()
 	return nil
 }
 
@@ -57,7 +55,8 @@ func (s *MemStorage) BatchUpdate(ctx context.Context, metrics []Metrics) error {
 	default:
 	}
 
-	for _, m := range metrics {
+	for i := range metrics {
+		m := &metrics[i]
 		switch m.MType {
 		case "counter":
 			if m.Delta != nil {
@@ -75,9 +74,9 @@ func (s *MemStorage) BatchUpdate(ctx context.Context, metrics []Metrics) error {
 
 func (s *MemStorage) GetCounter(name string) (int64, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	val, ok := s.counters[name]
+	s.mu.RUnlock()
+
 	if !ok {
 		return 0, errors.New("counter not found")
 	}
@@ -86,9 +85,9 @@ func (s *MemStorage) GetCounter(name string) (int64, error) {
 
 func (s *MemStorage) GetGauge(name string) (float64, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	val, ok := s.gauges[name]
+	s.mu.RUnlock()
+
 	if !ok {
 		return 0, errors.New("gauge not found")
 	}

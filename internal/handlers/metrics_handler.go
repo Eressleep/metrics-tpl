@@ -137,8 +137,13 @@ func (h *MetricsHandler) UpdateBatch(c *gin.Context) {
 		return
 	}
 
-	metrics := make([]storage.Metrics, 0, len(batch))
-	for _, metric := range batch {
+	// Pre-allocate slice with exact capacity
+	metrics := make([]storage.Metrics, len(batch))
+	validCount := 0
+
+	for i := range batch {
+		metric := &batch[i]
+
 		if metric.ID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "metric ID is required"})
 			return
@@ -160,28 +165,30 @@ func (h *MetricsHandler) UpdateBatch(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("delta is required for counter metric: %s", metric.ID)})
 				return
 			}
-			metrics = append(metrics, storage.Metrics{
+			metrics[validCount] = storage.Metrics{
 				ID:    metric.ID,
 				MType: metric.MType,
 				Delta: metric.Delta,
-			})
+			}
+			validCount++
 		case model.Gauge:
 			if metric.Value == nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("value is required for gauge metric: %s", metric.ID)})
 				return
 			}
-			metrics = append(metrics, storage.Metrics{
+			metrics[validCount] = storage.Metrics{
 				ID:    metric.ID,
 				MType: metric.MType,
 				Value: metric.Value,
-			})
+			}
+			validCount++
 		}
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	if err := h.storage.BatchUpdate(ctx, metrics); err != nil {
+	if err := h.storage.BatchUpdate(ctx, metrics[:validCount]); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

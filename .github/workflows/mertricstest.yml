@@ -382,3 +382,40 @@ jobs:
           github.head_ref == 'iter16'
         run: |
           go test -v -race ./...
+
+      - name "name: "Code increment #17"
+        if: |
+          github.head_ref == 'iter17'
+        run: |
+          SERVER_PORT=$(random unused-port)
+          ADDRESS="localhost:${SERVER_PORT}"
+          TEMP_FILE=$(random tempfile)
+
+          cd cmd/server
+          go build -buildvcs=false -o server
+          cd ../..
+
+          ./cmd/server/server -a=$ADDRESS &
+          SERVER_PID=$!
+          sleep 2
+
+          for i in {1..100}; do
+            curl -s -X POST http://$ADDRESS/update/ \
+              -H "Content-Type: application/json" \
+              -d "{\"id\":\"test$i\",\"type\":\"gauge\",\"value\":$i}" &
+          done
+          wait
+
+          mkdir -p profiles
+
+          curl -s -o profiles/base.pprof http://$ADDRESS/debug/pprof/heap
+
+          go test -bench=. -benchmem ./internal/...
+
+          curl -s -o profiles/result.pprof http://$ADDRESS/debug/pprof/heap
+
+          go tool pprof -top -diff_base=profiles/base.pprof profiles/result.pprof
+
+          kill $SERVER_PID
+
+          go test -v -race ./...
