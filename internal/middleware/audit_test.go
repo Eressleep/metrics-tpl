@@ -119,7 +119,6 @@ func TestAuditMiddlewareGETRequest(t *testing.T) {
 	logger := zap.NewNop()
 	auditor := audit.New("test_audit.log", "", logger)
 	defer func() {
-		// Clean up
 		recover()
 	}()
 

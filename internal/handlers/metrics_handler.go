@@ -137,7 +137,6 @@ func (h *MetricsHandler) UpdateBatch(c *gin.Context) {
 		return
 	}
 
-	// Pre-allocate slice with exact capacity
 	metrics := make([]storage.Metrics, len(batch))
 	validCount := 0
 

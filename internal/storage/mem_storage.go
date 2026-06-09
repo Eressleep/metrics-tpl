@@ -98,7 +98,6 @@ func (s *MemStorage) GetAllGauges() map[string]float64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Return a copy to prevent concurrent access issues
 	gauges := make(map[string]float64, len(s.gauges))
 	for k, v := range s.gauges {
 		gauges[k] = v
