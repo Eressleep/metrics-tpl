@@ -113,7 +113,9 @@ func ExampleMetricsHandler_GetValueJSON() {
 	router.ServeHTTP(w, req)
 
 	// Читаем ответ
-	respBody, _ := io.ReadAll(w.Result().Body)
+	resp := w.Result()
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
 	fmt.Println(w.Code)
 	fmt.Println(string(respBody))
 	// Output:
@@ -162,4 +164,26 @@ func ExampleMetricsHandler_Ping() {
 	// Output:
 	// 200
 	// pong
+}
+
+// ExampleMetricsHandler_GetAllMetrics демонстрирует получение всех метрик в HTML формате.
+func ExampleMetricsHandler_GetAllMetrics() {
+	gin.SetMode(gin.ReleaseMode)
+	store := storage.NewMemStorage()
+	store.UpdateGauge("temperature", 23.5)
+	handler := handlers.NewMetricsHandler(store, "")
+
+	router := gin.Default()
+	router.GET("/", handler.GetAllMetrics)
+
+	// Отправляем запрос
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	fmt.Println(w.Code)
+	fmt.Println(w.Header().Get("Content-Type"))
+	// Output:
+	// 200
+	// text/html; charset=utf-8
 }
