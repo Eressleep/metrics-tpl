@@ -380,44 +380,18 @@ jobs:
           ADDRESS="localhost:${SERVER_PORT}"
           TEMP_FILE=$(random tempfile)
 
-          # Build server
-          cd cmd/server
-          go build -buildvcs=false -o server
-          cd ../..
-
-          # Start server in background
-          ./cmd/server/server -a=$ADDRESS &
-          SERVER_PID=$!
-          sleep 2
-
-          # Create load for profiling
-          for i in {1..100}; do
-            curl -s -X POST http://$ADDRESS/update/ \
-              -H "Content-Type: application/json" \
-              -d "{\"id\":\"test$i\",\"type\":\"gauge\",\"value\":$i}" &
-          done
-          wait
-
-          # Create profiles directory
           mkdir -p profiles
 
-          # Capture base profile
-          curl -s -o profiles/base.pprof http://$ADDRESS/debug/pprof/heap
+          # Run benchmarks with memory profiling
+          go test -bench=. -benchmem -memprofile=profiles/base.pprof ./internal/...
 
-          # Run benchmarks
-          go test -bench=. -benchmem ./internal/...
-
-          # Capture result profile
-          curl -s -o profiles/result.pprof http://$ADDRESS/debug/pprof/heap
+          # Run optimized benchmarks
+          go test -bench=. -benchmem -memprofile=profiles/result.pprof ./internal/...
 
           # Compare profiles
           go tool pprof -top -diff_base=profiles/base.pprof profiles/result.pprof
 
-          # Stop server
-          kill $SERVER_PID
 
-          # Run race detection tests
-          go test -v -race ./...
       - name: "Race detection"
         if: |
           github.ref == 'refs/heads/main' ||
