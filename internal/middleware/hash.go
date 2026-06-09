@@ -13,19 +13,21 @@ import (
 
 func HashCheckMiddleware(key string, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Если ключ не задан, пропускаем все запросы
 		if key == "" {
 			c.Next()
 			return
 		}
+
+		// Пропускаем GET запросы
 		if c.Request.Method == http.MethodGet {
 			c.Next()
 			return
 		}
+
 		path := c.Request.URL.Path
-		if strings.Contains(path, "/value") || path == "/" || path == "/ping" {
-			c.Next()
-			return
-		}
+
+		// Проверяем хеш только для update запросов
 		if !strings.Contains(path, "/update") && !strings.Contains(path, "/updates") {
 			c.Next()
 			return
@@ -36,22 +38,21 @@ func HashCheckMiddleware(key string, logger *zap.Logger) gin.HandlerFunc {
 			requestHash = c.GetHeader("Hash")
 		}
 
-		if requestHash == "none" {
-			logger.Debug("Hash header is 'none', skipping check",
-				zap.String("method", c.Request.Method),
-				zap.String("path", path))
+		// Если клиент явно указал "none" - пропускаем без проверки
+		if strings.EqualFold(requestHash, "none") {
+			logger.Debug("Hash header is 'none', skipping check")
 			c.Next()
 			return
 		}
 
+		// Если хеш не указан, пропускаем
 		if requestHash == "" {
-			logger.Debug("Hash header is missing, skipping check",
-				zap.String("method", c.Request.Method),
-				zap.String("path", path))
+			logger.Debug("Hash header is missing, skipping check")
 			c.Next()
 			return
 		}
 
+		// Читаем тело запроса
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
 			logger.Error("Failed to read request body", zap.Error(err))
@@ -59,12 +60,17 @@ func HashCheckMiddleware(key string, logger *zap.Logger) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		// Восстанавливаем тело запроса
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 
-		if !hash.VerifyHMAC(body, requestHash, key) {
+		// Вычисляем ожидаемый хеш
+		expectedHash := hash.ComputeHMAC(body, key)
+
+		// Сравниваем хеши
+		if requestHash != expectedHash {
 			logger.Warn("Hash verification failed",
 				zap.String("path", path),
-				zap.String("expected", hash.ComputeHMAC(body, key)),
+				zap.String("expected", expectedHash),
 				zap.String("received", requestHash))
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid hash"})
 			c.Abort()
@@ -78,7 +84,29 @@ func HashCheckMiddleware(key string, logger *zap.Logger) gin.HandlerFunc {
 
 func HashResponseMiddleware(key string, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if key == "" || c.Request.Method == http.MethodGet || strings.Contains(c.Request.URL.Path, "/value") {
+		if key == "" {
+			c.Next()
+			return
+		}
+
+		// Добавляем хеш только для POST ответов на update запросы
+		if c.Request.Method != http.MethodPost {
+			c.Next()
+			return
+		}
+
+		path := c.Request.URL.Path
+		if !strings.Contains(path, "/update") && !strings.Contains(path, "/updates") {
+			c.Next()
+			return
+		}
+
+		// Проверяем, не запросил ли клиент пропуск хеша
+		requestHash := c.GetHeader("HashSHA256")
+		if requestHash == "" {
+			requestHash = c.GetHeader("Hash")
+		}
+		if strings.EqualFold(requestHash, "none") {
 			c.Next()
 			return
 		}
@@ -93,11 +121,11 @@ func HashResponseMiddleware(key string, logger *zap.Logger) gin.HandlerFunc {
 
 		c.Next()
 
+		// Добавляем хеш только для успешных ответов с телом
 		if writer.body.Len() > 0 && c.Writer.Status() == http.StatusOK {
 			bodyData := writer.body.Bytes()
 			responseHash := hash.ComputeHMAC(bodyData, key)
 			c.Header("HashSHA256", responseHash)
-			c.Header("Hash", responseHash)
 			logger.Debug("Added hash to response",
 				zap.String("hash", responseHash),
 				zap.Int("body_size", len(bodyData)))
