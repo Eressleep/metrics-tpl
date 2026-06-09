@@ -14,8 +14,8 @@ type MemStorage struct {
 
 func NewMemStorage() *MemStorage {
 	return &MemStorage{
-		gauges:   make(map[string]float64, 100),
-		counters: make(map[string]int64, 10),
+		gauges:   make(map[string]float64, 32),
+		counters: make(map[string]int64, 8),
 	}
 }
 
@@ -98,6 +98,7 @@ func (s *MemStorage) GetAllGauges() map[string]float64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// Return a copy to prevent concurrent access issues
 	gauges := make(map[string]float64, len(s.gauges))
 	for k, v := range s.gauges {
 		gauges[k] = v

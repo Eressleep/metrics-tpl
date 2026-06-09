@@ -2,7 +2,7 @@ package storage
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"testing"
 )
 
@@ -11,7 +11,7 @@ func BenchmarkMemStorageUpdateCounter(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		store.UpdateCounter(fmt.Sprintf("counter_%d", i%100), 1)
+		store.UpdateCounter("counter_"+strconv.Itoa(i%100), 1)
 	}
 }
 
@@ -20,7 +20,7 @@ func BenchmarkMemStorageUpdateGauge(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		store.UpdateGauge(fmt.Sprintf("gauge_%d", i%100), float64(i))
+		store.UpdateGauge("gauge_"+strconv.Itoa(i%100), float64(i))
 	}
 }
 
@@ -33,14 +33,14 @@ func BenchmarkMemStorageBatchUpdate(b *testing.B) {
 		if i%2 == 0 {
 			v := float64(i)
 			metrics[i] = Metrics{
-				ID:    fmt.Sprintf("gauge_%d", i),
+				ID:    "gauge_" + strconv.Itoa(i),
 				MType: "gauge",
 				Value: &v,
 			}
 		} else {
 			d := int64(i)
 			metrics[i] = Metrics{
-				ID:    fmt.Sprintf("counter_%d", i),
+				ID:    "counter_" + strconv.Itoa(i),
 				MType: "counter",
 				Delta: &d,
 			}
@@ -56,12 +56,25 @@ func BenchmarkMemStorageBatchUpdate(b *testing.B) {
 func BenchmarkMemStorageGetAllGauges(b *testing.B) {
 	store := NewMemStorage()
 
-	for i := 0; i < 100; i++ {
-		store.UpdateGauge(fmt.Sprintf("gauge_%d", i), float64(i))
+	for i := 0; i < 30; i++ {
+		store.UpdateGauge("gauge_"+strconv.Itoa(i), float64(i))
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		store.GetAllGauges()
+	}
+}
+
+func BenchmarkMemStorageGetAllCounters(b *testing.B) {
+	store := NewMemStorage()
+
+	for i := 0; i < 10; i++ {
+		store.UpdateCounter("counter_"+strconv.Itoa(i), int64(i))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		store.GetAllCounters()
 	}
 }

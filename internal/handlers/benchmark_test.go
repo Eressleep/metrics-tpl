@@ -12,14 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func float64Ptr(v float64) *float64 {
-	return &v
-}
-
-func int64Ptr(v int64) *int64 {
-	return &v
-}
-
 func setupBenchmarkRouter() (*gin.Engine, *MetricsHandler) {
 	gin.SetMode(gin.ReleaseMode)
 	store := storage.NewMemStorage()
@@ -36,10 +28,11 @@ func setupBenchmarkRouter() (*gin.Engine, *MetricsHandler) {
 func BenchmarkUpdateJSON(b *testing.B) {
 	router, _ := setupBenchmarkRouter()
 
+	value := 123.45
 	metric := model.Metrics{
 		ID:    "test_gauge",
 		MType: model.Gauge,
-		Value: float64Ptr(123.45),
+		Value: &value,
 	}
 	body, _ := json.Marshal(metric)
 
@@ -55,12 +48,13 @@ func BenchmarkUpdateJSON(b *testing.B) {
 func BenchmarkUpdateBatch(b *testing.B) {
 	router, _ := setupBenchmarkRouter()
 
+	v1, v3 := 1.1, 2.2
+	d2, d4 := int64(10), int64(20)
 	batch := []model.Metrics{
-		{ID: "metric1", MType: model.Gauge, Value: float64Ptr(1.1)},
-		{ID: "metric2", MType: model.Counter, Delta: int64Ptr(10)},
-		{ID: "metric3", MType: model.Gauge, Value: float64Ptr(2.2)},
-		{ID: "metric4", MType: model.Counter, Delta: int64Ptr(20)},
-		{ID: "metric5", MType: model.Gauge, Value: float64Ptr(3.3)},
+		{ID: "metric1", MType: model.Gauge, Value: &v1},
+		{ID: "metric2", MType: model.Counter, Delta: &d2},
+		{ID: "metric3", MType: model.Gauge, Value: &v3},
+		{ID: "metric4", MType: model.Counter, Delta: &d4},
 	}
 	body, _ := json.Marshal(batch)
 

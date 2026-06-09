@@ -385,6 +385,7 @@ jobs:
           go test -bench=. -benchmem ./internal/...
 
           go test -bench=. -benchmem -memprofile=profiles/base.pprof ./internal/storage/
+
           go test -bench=. -benchmem -memprofile=profiles/result.pprof ./internal/storage/
 
           go tool pprof -top -diff_base=profiles/base.pprof profiles/result.pprof
