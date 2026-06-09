@@ -56,7 +56,6 @@ jobs:
         run: |
           go install golang.org/x/tools/cmd/goimports@latest
 
-
       - name: Build server binary
         run: |
           cd cmd/server
@@ -80,7 +79,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           metricstest -test.v -test.run=^TestIteration1$ \
             -binary-path=cmd/server/server
@@ -107,7 +107,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           metricstest -test.v -test.run=^TestIteration2[AB]*$ \
             -source-path=. \
@@ -129,7 +130,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           metricstest -test.v -test.run=^TestIteration3[AB]*$ \
             -source-path=. \
@@ -151,7 +153,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -176,7 +179,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -200,7 +204,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -223,7 +228,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -245,7 +251,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -266,7 +273,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -287,7 +295,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -307,7 +316,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -326,7 +336,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -344,7 +355,8 @@ jobs:
           github.head_ref == 'iter13' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -361,7 +373,8 @@ jobs:
           github.ref == 'refs/heads/main' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -373,12 +386,31 @@ jobs:
             -key="${TEMP_FILE}" \
             -server-port=$SERVER_PORT \
             -source-path=.
+      - name: "Code increment #17"
+        if: |
+          github.head_ref == 'iter17'
+        run: |
+          SERVER_PORT=$(random unused-port)
+          ADDRESS="localhost:${SERVER_PORT}"
+          TEMP_FILE=$(random tempfile)
 
-      - name: "Code increment #14#15#16 (race detection)"
+          mkdir -p profiles
+
+          go test -bench=. -benchmem ./internal/...
+
+          go test -bench=. -benchmem -memprofile=profiles/base.pprof ./internal/storage/
+
+          go test -bench=. -benchmem -memprofile=profiles/result.pprof ./internal/storage/
+
+          go tool pprof -top -diff_base=profiles/base.pprof profiles/result.pprof
+
+      - name: "Race detection"
         if: |
           github.ref == 'refs/heads/main' ||
           github.head_ref == 'iter14' ||
           github.head_ref == 'iter15' ||
-          github.head_ref == 'iter16'
+          github.head_ref == 'iter16' ||
+          github.head_ref == 'iter17'
         run: |
           go test -v -race ./...
+

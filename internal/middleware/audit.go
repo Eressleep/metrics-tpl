@@ -14,10 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// AuditMiddleware creates a middleware that logs successful metric updates to audit
 func AuditMiddleware(auditor *audit.Auditor, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Skip if auditor is not enabled
 		if auditor == nil || !auditor.IsEnabled() {
 			c.Next()
 			return
@@ -25,13 +23,11 @@ func AuditMiddleware(auditor *audit.Auditor, logger *zap.Logger) gin.HandlerFunc
 
 		path := c.Request.URL.Path
 
-		// Skip non-update endpoints
 		if !isUpdateEndpoint(path) {
 			c.Next()
 			return
 		}
 
-		// Capture the request body for later use (only for JSON endpoints)
 		var bodyBytes []byte
 		if c.Request.Body != nil && (strings.TrimRight(path, "/") == "/update" || strings.TrimRight(path, "/") == "/updates") {
 			var err error
@@ -41,32 +37,26 @@ func AuditMiddleware(auditor *audit.Auditor, logger *zap.Logger) gin.HandlerFunc
 				c.Next()
 				return
 			}
-			// Restore the body for the next handler
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
 
-		// Process the request first
 		c.Next()
 
-		// Only audit successful requests
 		if c.Writer.Status() != http.StatusOK {
 			return
 		}
 
-		// Extract metric names from the request
 		metrics := extractMetricNames(c, bodyBytes, logger)
 		if len(metrics) == 0 {
 			return
 		}
 
-		// Create audit event
 		event := audit.Event{
 			TS:        time.Now().Unix(),
 			Metrics:   metrics,
 			IPAddress: c.ClientIP(),
 		}
 
-		// Log event asynchronously to not block the response
 		go func() {
 			if err := auditor.LogEvent(event); err != nil {
 				logger.Error("Failed to log audit event", zap.Error(err))
@@ -75,15 +65,12 @@ func AuditMiddleware(auditor *audit.Auditor, logger *zap.Logger) gin.HandlerFunc
 	}
 }
 
-// isUpdateEndpoint checks if the path is a metric update endpoint
 func isUpdateEndpoint(path string) bool {
-	// JSON update endpoints
 	cleanPath := strings.TrimRight(path, "/")
 	if cleanPath == "/update" || cleanPath == "/updates" {
 		return true
 	}
 
-	// URL parameter update endpoint: /update/:type/:name/:value
 	if strings.HasPrefix(path, "/update/") {
 		parts := strings.Split(strings.TrimPrefix(path, "/update/"), "/")
 		return len(parts) == 3
@@ -92,23 +79,19 @@ func isUpdateEndpoint(path string) bool {
 	return false
 }
 
-// extractMetricNames extracts metric names from the request
 func extractMetricNames(c *gin.Context, bodyBytes []byte, logger *zap.Logger) []string {
 	path := c.Request.URL.Path
 
-	// Handle URL parameter updates: /update/:type/:name/:value
 	if strings.HasPrefix(path, "/update/") {
-		// Parse path parameters
 		parts := strings.Split(strings.TrimPrefix(path, "/update/"), "/")
 		if len(parts) >= 2 {
-			return []string{parts[1]} // parts[1] is the metric name
+			return []string{parts[1]}
 		}
 		return nil
 	}
 
 	cleanPath := strings.TrimRight(path, "/")
 
-	// Handle JSON single metric update: POST /update
 	if cleanPath == "/update" && len(bodyBytes) > 0 {
 		var metric model.Metrics
 		if err := json.Unmarshal(bodyBytes, &metric); err == nil {
@@ -119,7 +102,6 @@ func extractMetricNames(c *gin.Context, bodyBytes []byte, logger *zap.Logger) []
 		return nil
 	}
 
-	// Handle JSON batch update: POST /updates
 	if cleanPath == "/updates" && len(bodyBytes) > 0 {
 		var batch []model.Metrics
 		if err := json.Unmarshal(bodyBytes, &batch); err == nil {
