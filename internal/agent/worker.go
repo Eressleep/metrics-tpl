@@ -20,7 +20,7 @@ type WorkerPool struct {
 	wg         sync.WaitGroup
 	stopChan   chan struct{}
 	mu         sync.Mutex
-	jobsClosed bool
+	stopped    bool
 }
 
 func NewWorkerPool(workers int, serverAddr, hashKey string) *WorkerPool {
@@ -50,6 +50,13 @@ func (p *WorkerPool) GetWorkersCount() int {
 }
 
 func (p *WorkerPool) Start() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.stopped {
+		return
+	}
+
 	for i := 0; i < p.workers; i++ {
 		p.wg.Add(1)
 		go p.worker(i)
@@ -61,24 +68,26 @@ func (p *WorkerPool) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	select {
-	case <-p.stopChan:
+	if p.stopped {
 		return
-	default:
-		close(p.stopChan)
 	}
+	p.stopped = true
 
+	close(p.stopChan)
 	p.wg.Wait()
-
-	if !p.jobsClosed {
-		close(p.jobs)
-		p.jobsClosed = true
-	}
+	close(p.jobs)
 
 	log.Println("Worker pool stopped")
 }
 
 func (p *WorkerPool) Submit(metric model.Metrics) bool {
+	p.mu.Lock()
+	if p.stopped {
+		p.mu.Unlock()
+		return false
+	}
+	p.mu.Unlock()
+
 	select {
 	case p.jobs <- Job{Metric: metric}:
 		return true

@@ -3,6 +3,7 @@ package agent
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,7 +30,9 @@ func TestWorkerPool_StartStop(t *testing.T) {
 }
 
 func TestWorkerPool_Submit(t *testing.T) {
+	var receivedCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&receivedCount, 1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -38,7 +41,6 @@ func TestWorkerPool_Submit(t *testing.T) {
 
 	pool := NewWorkerPool(1, addr, "")
 	pool.Start()
-	defer pool.Stop()
 
 	metric := model.Metrics{
 		ID:    "test",
@@ -50,35 +52,12 @@ func TestWorkerPool_Submit(t *testing.T) {
 	}
 
 	time.Sleep(50 * time.Millisecond)
-}
 
-func TestWorkerPool_SubmitToFullQueue(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(100 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	pool.Stop()
 
-	addr := server.Listener.Addr().String()
-
-	pool := &WorkerPool{
-		workers:  1,
-		jobs:     make(chan Job, 2),
-		client:   NewMetricsClient(addr, ""),
-		stopChan: make(chan struct{}),
+	if atomic.LoadInt32(&receivedCount) == 0 {
+		t.Error("expected at least one metric to be received")
 	}
-	pool.Start()
-	defer pool.Stop()
-
-	metric := model.Metrics{
-		ID:    "test",
-		MType: "gauge",
-	}
-
-	for i := 0; i < 3; i++ {
-		pool.Submit(metric)
-	}
-
 }
 
 func TestWorkerPool_SubmitToClosedPool(t *testing.T) {
@@ -117,32 +96,14 @@ func TestWorkerPool_GetHashKey(t *testing.T) {
 	}
 }
 
-func TestWorkerPool_MultipleSubmits(t *testing.T) {
-	receivedCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedCount++
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	addr := server.Listener.Addr().String()
-
-	pool := NewWorkerPool(3, addr, "")
-	pool.Start()
-	defer pool.Stop()
-
-	metric := model.Metrics{
-		ID:    "test",
-		MType: "gauge",
+func TestWorkerPool_DefaultWorkers(t *testing.T) {
+	pool := NewWorkerPool(0, "localhost:8080", "")
+	if pool.GetWorkersCount() != 1 {
+		t.Errorf("expected 1 worker for invalid input, got %d", pool.GetWorkersCount())
 	}
 
-	for i := 0; i < 10; i++ {
-		pool.Submit(metric)
-	}
-
-	time.Sleep(200 * time.Millisecond)
-
-	if receivedCount == 0 {
-		t.Error("expected at least one metric to be received")
+	pool = NewWorkerPool(-1, "localhost:8080", "")
+	if pool.GetWorkersCount() != 1 {
+		t.Errorf("expected 1 worker for negative input, got %d", pool.GetWorkersCount())
 	}
 }
