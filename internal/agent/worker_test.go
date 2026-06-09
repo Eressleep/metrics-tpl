@@ -1,10 +1,10 @@
-// internal/gent/worker_test.go
 package agent
 
 import (
+	"testing"
+
 	"github.com/Eressleep/metrics-tpl/internal/model"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestNewWorkerPool(t *testing.T) {

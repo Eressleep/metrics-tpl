@@ -36,6 +36,10 @@ func NewMetricsHandler(storage storage.Storage, hashKey string) *MetricsHandler 
 	}
 }
 
+func (h *MetricsHandler) GetHashKey() string {
+	return h.hashKey
+}
+
 func (h *MetricsHandler) UpdateJSON(c *gin.Context) {
 	if c.GetHeader("Content-Type") != "application/json" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Content-Type must be application/json"})
