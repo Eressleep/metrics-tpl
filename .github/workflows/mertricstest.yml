@@ -382,15 +382,12 @@ jobs:
 
           mkdir -p profiles
 
-          # Run benchmarks with memory profiling
-          go test -bench=. -benchmem -memprofile=profiles/base.pprof ./internal/...
+          go test -bench=. -benchmem ./internal/...
 
-          # Run optimized benchmarks
-          go test -bench=. -benchmem -memprofile=profiles/result.pprof ./internal/...
+          go test -bench=. -benchmem -memprofile=profiles/base.pprof ./internal/storage/
+          go test -bench=. -benchmem -memprofile=profiles/result.pprof ./internal/storage/
 
-          # Compare profiles
           go tool pprof -top -diff_base=profiles/base.pprof profiles/result.pprof
-
 
       - name: "Race detection"
         if: |
