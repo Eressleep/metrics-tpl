@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/audit"
@@ -87,6 +88,16 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	router.GET("/ping", metricsHandler.Ping)
 	router.GET("/ping-db", metricsHandler.PingDB)
 
+	router.GET("/debug/pprof/", gin.WrapF(pprof.Index))
+	router.GET("/debug/pprof/cmdline", gin.WrapF(pprof.Cmdline))
+	router.GET("/debug/pprof/profile", gin.WrapF(pprof.Profile))
+	router.GET("/debug/pprof/symbol", gin.WrapF(pprof.Symbol))
+	router.GET("/debug/pprof/trace", gin.WrapF(pprof.Trace))
+	router.GET("/debug/pprof/heap", gin.WrapF(pprof.Handler("heap").ServeHTTP))
+	router.GET("/debug/pprof/goroutine", gin.WrapF(pprof.Handler("goroutine").ServeHTTP))
+	router.GET("/debug/pprof/threadcreate", gin.WrapF(pprof.Handler("threadcreate").ServeHTTP))
+	router.GET("/debug/pprof/block", gin.WrapF(pprof.Handler("block").ServeHTTP))
+	
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
 	})

@@ -12,6 +12,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func float64Ptr(v float64) *float64 {
+	return &v
+}
+
+func int64Ptr(v int64) *int64 {
+	return &v
+}
+
 func setupBenchmarkRouter() (*gin.Engine, *MetricsHandler) {
 	gin.SetMode(gin.ReleaseMode)
 	store := storage.NewMemStorage()
@@ -83,12 +91,4 @@ func BenchmarkGetValueJSON(b *testing.B) {
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 	}
-}
-
-func float64Ptr(v float64) *float64 {
-	return &v
-}
-
-func int64Ptr(v int64) *int64 {
-	return &v
 }
