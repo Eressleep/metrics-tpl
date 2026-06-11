@@ -2,9 +2,6 @@ package agent
 
 import (
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -51,17 +48,10 @@ func (a *Agent) Run() {
 
 	go a.reportLoop()
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	<-a.stopChan
+	log.Println("Программная остановка агента...")
 
-	select {
-	case <-sigChan:
-		log.Println("Получен сигнал завершения, останавливаем агент...")
-	case <-a.stopChan:
-		log.Println("Программная остановка агента...")
-	}
-
-	a.Stop()
+	a.cleanup()
 }
 
 func (a *Agent) reportLoop() {
@@ -87,15 +77,14 @@ func (a *Agent) sendMetrics() {
 	log.Printf("Sending %d metrics to worker pool", len(metrics))
 
 	for _, metric := range metrics {
-		a.pool.Submit(metric)
+		if !a.pool.Submit(metric) {
+			log.Printf("Failed to submit metric %s (pool stopped or queue full)", metric.ID)
+		}
 	}
 }
 
 func (a *Agent) Stop() {
 	log.Println("Stopping agent...")
-
-	a.collector.Stop()
-	a.pool.Stop()
 
 	select {
 	case <-a.stopChan:
@@ -103,5 +92,12 @@ func (a *Agent) Stop() {
 		close(a.stopChan)
 	}
 
+	a.cleanup()
+
 	log.Println("Agent stopped")
+}
+
+func (a *Agent) cleanup() {
+	a.collector.Stop()
+	a.pool.Stop()
 }

@@ -18,8 +18,9 @@ type FileStorage struct {
 	logger        *zap.Logger
 	stopChan      chan struct{}
 	wg            sync.WaitGroup
-	mu            sync.RWMutex
+	mu            sync.Mutex
 	dataMu        sync.RWMutex
+	stopped       bool
 }
 
 func NewFileStorage(filePath string, storeInterval time.Duration, restore bool, logger *zap.Logger) (*FileStorage, error) {
@@ -224,18 +225,18 @@ func (fs *FileStorage) loadFromFile() error {
 	fs.dataMu.Lock()
 	defer fs.dataMu.Unlock()
 
-	fs.gauges = make(map[string]float64)
-	fs.counters = make(map[string]int64)
+	fs.MemStorage.gauges = make(map[string]float64)
+	fs.MemStorage.counters = make(map[string]int64)
 
 	for _, metric := range metrics {
 		switch metric.MType {
 		case model.Gauge:
 			if metric.Value != nil {
-				fs.gauges[metric.ID] = *metric.Value
+				fs.MemStorage.gauges[metric.ID] = *metric.Value
 			}
 		case model.Counter:
 			if metric.Delta != nil {
-				fs.counters[metric.ID] = *metric.Delta
+				fs.MemStorage.counters[metric.ID] = *metric.Delta
 			}
 		}
 	}
@@ -244,12 +245,17 @@ func (fs *FileStorage) loadFromFile() error {
 }
 
 func (fs *FileStorage) Stop() error {
-	select {
-	case <-fs.stopChan:
-	default:
-		close(fs.stopChan)
+	fs.mu.Lock()
+	if fs.stopped {
+		fs.mu.Unlock()
+		return nil
 	}
+	fs.stopped = true
+	fs.mu.Unlock()
+
+	close(fs.stopChan)
 
 	fs.wg.Wait()
+
 	return fs.saveToFile()
 }

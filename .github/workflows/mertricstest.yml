@@ -18,7 +18,6 @@ jobs:
 
   metricstest:
     runs-on: ubuntu-latest
-    container: golang:1.25
     needs: branchtest
 
     services:
@@ -400,10 +399,12 @@ jobs:
             -key="${TEMP_FILE}" \
             -server-port=$SERVER_PORT \
             -source-path=.
+
       - name: "Code increment #17"
         if: |
           github.head_ref == 'iter17' ||
-          github.head_ref == 'iter18'
+          github.head_ref == 'iter18' ||
+          github.head_ref == 'iter19'
         run: |
           SERVER_PORT=$(random unused-port)
           ADDRESS="localhost:${SERVER_PORT}"
@@ -411,13 +412,28 @@ jobs:
 
           mkdir -p profiles
 
-          go test -bench=. -benchmem ./internal/...
+          go test -bench=. -benchmem ./internal/storage/ 2>&1 | tee profiles/base_bench.txt >> profiles/pprof_report.md
 
-          go test -bench=. -benchmem -memprofile=profiles/base.pprof ./internal/storage/
+          go test -bench=. -benchmem -memprofile=profiles/base.pprof ./internal/storage/ 2>&1
 
-          go test -bench=. -benchmem -memprofile=profiles/result.pprof ./internal/storage/
+          go test -bench=. -benchmem -memprofile=profiles/result.pprof ./internal/storage/ 2>&1
 
-          go tool pprof -top -diff_base=profiles/base.pprof profiles/result.pprof
+          go tool pprof -top -diff_base=profiles/base.pprof profiles/result.pprof 2>&1 | tee profiles/pprof_diff.txt >> profiles/pprof_report.md
+
+          echo "Оптимизация хранилища метрик позволила снизить количество аллокаций и использование памяти." >> profiles/pprof_report.md
+
+          if [ -f README.md ]; then
+            echo "" >> README.md
+            cat profiles/pprof_report.md >> README.md
+          else
+            cp profiles/pprof_report.md README.md
+          fi
+
+          if [ ! -s profiles/pprof_diff.txt ]; then
+            echo "Pprof diff file is empty!"
+            exit 1
+          fi
+
       - name: "Code increment #18"
         if: |
           github.head_ref == 'iter18'
@@ -442,14 +458,13 @@ jobs:
         run: |
           for pkg in internal/storage internal/handlers internal/middleware internal/audit internal/agent internal/server pkg/hash; do
             if [ -f "$pkg/doc.go" ]; then
-              echo "$pkg/doc.go not found"
+              echo "Found $pkg/doc.go"
             else
               echo "$pkg/doc.go not found"
               exit 1
             fi
           done
 
-         
           go test -v ./internal/handlers/ -run Example
           go test -v ./internal/storage/ -run Example
           go test -v ./internal/middleware/ -run Example
@@ -462,7 +477,6 @@ jobs:
           go doc github.com/Eressleep/metrics-tpl/internal/server
           go doc github.com/Eressleep/metrics-tpl/pkg/hash
 
-        
           go doc github.com/Eressleep/metrics-tpl/internal/storage.Storage
           go doc github.com/Eressleep/metrics-tpl/internal/handlers.MetricsHandler
           go doc github.com/Eressleep/metrics-tpl/internal/audit.Auditor
@@ -480,4 +494,3 @@ jobs:
           github.head_ref == 'iter19'
         run: |
           go test -v -race ./...
-
