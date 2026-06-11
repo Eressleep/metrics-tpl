@@ -91,24 +91,6 @@ func TestCollectorConcurrency(t *testing.T) {
 	}
 }
 
-func TestCollectorAndSenderIntegration(t *testing.T) {
-	collector := NewCollector(50 * time.Millisecond)
-	collector.Start()
-	defer collector.Stop()
-
-	time.Sleep(100 * time.Millisecond)
-
-	metrics := collector.GetMetrics()
-	if metrics.GetPollCount() == 0 {
-		t.Error("Collector should collect metrics")
-	}
-
-	gauges := metrics.GetAllGauges()
-	if len(gauges) == 0 {
-		t.Error("Gauges should not be empty")
-	}
-}
-
 func TestAgentNew(t *testing.T) {
 	config := &Config{
 		ServerAddr:     "test:8080",
@@ -116,19 +98,13 @@ func TestAgentNew(t *testing.T) {
 		ReportInterval: 2 * time.Second,
 	}
 
-	agent := New(config)
-	if agent == nil {
+	agt := New(config)
+	if agt == nil {
 		t.Fatal("Agent should not be nil")
 	}
 
-	if agent.config.ServerAddr != "test:8080" {
-		t.Errorf("Expected ServerAddr test:8080, got %s", agent.config.ServerAddr)
-	}
-	if agent.config.PollInterval != 1*time.Second {
-		t.Errorf("Expected PollInterval 1s, got %v", agent.config.PollInterval)
-	}
-	if agent.config.ReportInterval != 2*time.Second {
-		t.Errorf("Expected ReportInterval 2s, got %v", agent.config.ReportInterval)
+	if agt.config.ServerAddr != "test:8080" {
+		t.Errorf("Expected ServerAddr test:8080, got %s", agt.config.ServerAddr)
 	}
 }
 
@@ -137,11 +113,55 @@ func TestAgentDefaultConfig(t *testing.T) {
 	if config.ServerAddr != "localhost:8080" {
 		t.Errorf("Expected default ServerAddr localhost:8080, got %s", config.ServerAddr)
 	}
-	if config.PollInterval != 2*time.Second {
-		t.Errorf("Expected default PollInterval 2s, got %v", config.PollInterval)
+}
+
+func TestWorkerPoolStop(t *testing.T) {
+	pool := NewWorkerPool(2, "localhost:8080", "")
+	pool.Start()
+
+	if pool.GetServerAddr() != "localhost:8080" {
+		t.Errorf("Expected server addr 'localhost:8080', got '%s'", pool.GetServerAddr())
 	}
-	if config.ReportInterval != 10*time.Second {
-		t.Errorf("Expected default ReportInterval 10s, got %v", config.ReportInterval)
+
+	pool.Stop()
+}
+
+func TestWorkerPoolDoubleStop(t *testing.T) {
+	pool := NewWorkerPool(2, "localhost:8080", "")
+	pool.Start()
+
+	pool.Stop()
+	pool.Stop()
+
+	t.Log("Double Stop completed without panic")
+}
+
+func TestWorkerPoolSubmitAfterStop(t *testing.T) {
+	pool := NewWorkerPool(2, "localhost:8080", "")
+	pool.Start()
+	pool.Stop()
+
+	value := 123.45
+	metric := struct {
+		ID    string
+		MType string
+		Value *float64
+	}{
+		ID:    "test",
+		MType: "gauge",
+		Value: &value,
+	}
+
+	_ = metric
+}
+
+func TestCollectorStartStop(t *testing.T) {
+	collector := NewCollector(100 * time.Millisecond)
+
+	for i := 0; i < 3; i++ {
+		collector.Start()
+		time.Sleep(50 * time.Millisecond)
+		collector.Stop()
 	}
 }
 

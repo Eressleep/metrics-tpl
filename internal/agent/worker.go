@@ -3,6 +3,7 @@ package agent
 import (
 	"log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Eressleep/metrics-tpl/internal/model"
 )
@@ -19,8 +20,7 @@ type WorkerPool struct {
 	hashKey    string
 	wg         sync.WaitGroup
 	stopChan   chan struct{}
-	mu         sync.Mutex
-	jobsClosed bool
+	stopped    atomic.Bool
 }
 
 func NewWorkerPool(workers int, serverAddr, hashKey string) *WorkerPool {
@@ -50,6 +50,10 @@ func (p *WorkerPool) GetWorkersCount() int {
 }
 
 func (p *WorkerPool) Start() {
+	if p.stopped.Load() {
+		return
+	}
+
 	for i := 0; i < p.workers; i++ {
 		p.wg.Add(1)
 		go p.worker(i)
@@ -58,27 +62,24 @@ func (p *WorkerPool) Start() {
 }
 
 func (p *WorkerPool) Stop() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	select {
-	case <-p.stopChan:
+	if !p.stopped.CompareAndSwap(false, true) {
 		return
-	default:
-		close(p.stopChan)
 	}
+
+	close(p.stopChan)
+
+	close(p.jobs)
 
 	p.wg.Wait()
-
-	if !p.jobsClosed {
-		close(p.jobs)
-		p.jobsClosed = true
-	}
 
 	log.Println("Worker pool stopped")
 }
 
 func (p *WorkerPool) Submit(metric model.Metrics) bool {
+	if p.stopped.Load() {
+		return false
+	}
+
 	select {
 	case p.jobs <- Job{Metric: metric}:
 		return true
@@ -96,14 +97,21 @@ func (p *WorkerPool) worker(id int) {
 	for {
 		select {
 		case <-p.stopChan:
+			for job := range p.jobs {
+				p.processJob(id, job)
+			}
 			return
 		case job, ok := <-p.jobs:
 			if !ok {
 				return
 			}
-			if err := p.client.SendMetric(job.Metric); err != nil {
-				log.Printf("Worker %d failed to send metric %s: %v", id, job.Metric.ID, err)
-			}
+			p.processJob(id, job)
 		}
+	}
+}
+
+func (p *WorkerPool) processJob(id int, job Job) {
+	if err := p.client.SendMetric(job.Metric); err != nil {
+		log.Printf("Worker %d failed to send metric %s: %v", id, job.Metric.ID, err)
 	}
 }

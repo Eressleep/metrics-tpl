@@ -119,7 +119,6 @@ func (m *Metrics) IncrementPollCount() {
 	m.PollCount++
 }
 
-// getAllGaugesUnsafe возвращает все gauge метрики БЕЗ блокировки
 func (m *Metrics) getAllGaugesUnsafe() map[string]float64 {
 	gauges := map[string]float64{
 		"Alloc":         m.Alloc,
@@ -161,7 +160,6 @@ func (m *Metrics) getAllGaugesUnsafe() map[string]float64 {
 	return gauges
 }
 
-// GetAllGauges возвращает все gauge метрики (потокобезопасно)
 func (m *Metrics) GetAllGauges() map[string]float64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -195,14 +193,12 @@ func (m *Metrics) ToMetricsSlice() []model.Metrics {
 	return result
 }
 
-// GetPollCount возвращает значение счетчика PollCount (потокобезопасно)
 func (m *Metrics) GetPollCount() int64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.PollCount
 }
 
-// Copy создает копию метрик (потокобезопасно)
 func (m *Metrics) Copy() *Metrics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

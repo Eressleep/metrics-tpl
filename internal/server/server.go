@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/audit"
@@ -49,23 +50,18 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
 
-	// Отключаем автоматический редирект для trailing slash
 	router.RedirectTrailingSlash = false
 	router.RedirectFixedPath = false
 
-	// Базовые middleware
 	router.Use(gin.Logger(), gin.Recovery())
 
-	// Добавляем middleware сжатия
 	router.Use(middleware.GzipMiddleware())
 
-	// Добавляем middleware хеширования, если ключ задан
 	if metricsHandler.GetHashKey() != "" {
 		router.Use(middleware.HashCheckMiddleware(metricsHandler.GetHashKey(), logger))
 		router.Use(middleware.HashResponseMiddleware(metricsHandler.GetHashKey(), logger))
 	}
 
-	// Добавляем middleware аудита
 	auditor := audit.New(config.AuditFile, config.AuditURL, logger)
 	if auditor.IsEnabled() {
 		logger.Info("Audit logging enabled",
@@ -74,7 +70,6 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 		router.Use(middleware.AuditMiddleware(auditor, logger))
 	}
 
-	// Регистрируем обработчики
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
 	router.POST("/update/", metricsHandler.UpdateJSON)
 	router.POST("/update", metricsHandler.UpdateJSON)
@@ -86,6 +81,16 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	router.GET("/", metricsHandler.GetAllMetrics)
 	router.GET("/ping", metricsHandler.Ping)
 	router.GET("/ping-db", metricsHandler.PingDB)
+
+	router.GET("/debug/pprof/", gin.WrapF(pprof.Index))
+	router.GET("/debug/pprof/cmdline", gin.WrapF(pprof.Cmdline))
+	router.GET("/debug/pprof/profile", gin.WrapF(pprof.Profile))
+	router.GET("/debug/pprof/symbol", gin.WrapF(pprof.Symbol))
+	router.GET("/debug/pprof/trace", gin.WrapF(pprof.Trace))
+	router.GET("/debug/pprof/heap", gin.WrapF(pprof.Handler("heap").ServeHTTP))
+	router.GET("/debug/pprof/goroutine", gin.WrapF(pprof.Handler("goroutine").ServeHTTP))
+	router.GET("/debug/pprof/threadcreate", gin.WrapF(pprof.Handler("threadcreate").ServeHTTP))
+	router.GET("/debug/pprof/block", gin.WrapF(pprof.Handler("block").ServeHTTP))
 
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "endpoint not found"})
@@ -118,17 +123,14 @@ func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, rout
 
 	router.HandleMethodNotAllowed = true
 
-	// Отключаем автоматический редирект для trailing slash
 	router.RedirectTrailingSlash = false
 	router.RedirectFixedPath = false
 
-	// Добавляем middleware хеширования, если ключ задан
 	if metricsHandler.GetHashKey() != "" {
 		router.Use(middleware.HashCheckMiddleware(metricsHandler.GetHashKey(), logger))
 		router.Use(middleware.HashResponseMiddleware(metricsHandler.GetHashKey(), logger))
 	}
 
-	// Добавляем middleware аудита
 	auditor := audit.New(config.AuditFile, config.AuditURL, logger)
 	if auditor.IsEnabled() {
 		logger.Info("Audit logging enabled",
@@ -137,7 +139,6 @@ func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, rout
 		router.Use(middleware.AuditMiddleware(auditor, logger))
 	}
 
-	// Регистрируем обработчики
 	router.POST("/update/:type/:name/:value", metricsHandler.Update)
 	router.POST("/update/", metricsHandler.UpdateJSON)
 	router.POST("/update", metricsHandler.UpdateJSON)
