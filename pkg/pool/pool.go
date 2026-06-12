@@ -47,7 +47,6 @@ func New[T Resetter](newFn func() T) *Pool[T] {
 }
 
 // Get возвращает объект из пула.
-// Если пул пуст, создается новый объект через функцию-конструктор.
 func (p *Pool[T]) Get() T {
 	return p.p.Get().(T)
 }
@@ -59,7 +58,6 @@ func (p *Pool[T]) Put(item T) {
 }
 
 // PutWithoutReset возвращает объект в пул без сброса.
-// Используйте только если уверены, что сброс не нужен.
 func (p *Pool[T]) PutWithoutReset(item T) {
 	p.p.Put(item)
 }

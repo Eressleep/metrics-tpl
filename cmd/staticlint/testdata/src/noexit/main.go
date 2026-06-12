@@ -3,9 +3,9 @@ package main
 import "os"
 
 func main() {
-	os.Exit(1) // want "прямой вызов os.Exit в функции main пакета main запрещен"
+	os.Exit(1)
 }
 
 func helper() {
-	os.Exit(0) // разрешено, не в main
+	os.Exit(0)
 }

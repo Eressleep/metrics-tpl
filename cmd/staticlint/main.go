@@ -42,7 +42,6 @@ import (
 	"honnef.co/go/tools/stylecheck"
 )
 
-// NoExitAnalyzer - анализатор, запрещающий прямой вызов os.Exit в функции main пакета main
 var NoExitAnalyzer = &analysis.Analyzer{
 	Name: "noexit",
 	Doc:  "запрещает прямой вызов os.Exit в функции main пакета main",
@@ -139,19 +138,16 @@ func main() {
 		unusedresult.Analyzer,
 	)
 
-	// SA анализаторы
 	for _, a := range staticcheck.Analyzers {
 		if strings.HasPrefix(a.Analyzer.Name, "SA") {
 			analyzers = append(analyzers, a.Analyzer)
 		}
 	}
 
-	// ST анализаторы
 	for _, a := range stylecheck.Analyzers {
 		analyzers = append(analyzers, a.Analyzer)
 	}
 
-	// Собственный анализатор
 	analyzers = append(analyzers, NoExitAnalyzer)
 
 	multichecker.Main(analyzers...)
