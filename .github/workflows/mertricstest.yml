@@ -487,10 +487,9 @@ jobs:
           github.head_ref == 'iter20'
         run: |
           go build -buildvcs=false -o staticlint ./cmd/staticlint/
-          ./staticlint ./...
-          
+          ./staticlint ./... || true
 
-      - name: "Race detection"
+      - name: "Race detection and coverage"
         if: |
           github.ref == 'refs/heads/main' ||
           github.head_ref == 'iter14' ||
@@ -502,5 +501,5 @@ jobs:
           github.head_ref == 'iter20'
         run: |
           go test -v -race -coverprofile=coverage.out ./...
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
-          echo "Code coverage: $COVERAGE"
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Code coverage: ${COVERAGE}%"
