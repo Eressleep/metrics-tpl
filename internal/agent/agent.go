@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// generate:reset
 type Config struct {
 	ServerAddr     string
 	PollInterval   time.Duration
