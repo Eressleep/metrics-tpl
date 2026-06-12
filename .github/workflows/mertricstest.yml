@@ -485,7 +485,8 @@ jobs:
       - name: "Code increment #20"
         if: |
           github.head_ref == 'iter20' ||
-          github.head_ref == 'iter21'
+          github.head_ref == 'iter21' ||
+          github.head_ref == 'iter22'
         run: |
           go build -buildvcs=false -o staticlint ./cmd/staticlint/
           
@@ -493,9 +494,16 @@ jobs:
 
       - name: "Code increment #21"
         if: |
-          github.head_ref == 'iter21'
+          github.head_ref == 'iter21' ||
+          github.head_ref == 'iter22'
         run: |
           go run ./cmd/reset/
+
+      - name: "Code increment #22"
+        if: |
+          github.head_ref == 'iter22'
+        run: |
+          echo "iter22"
 
       - name: "Race detection and coverage"
         if: |
