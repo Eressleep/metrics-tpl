@@ -103,6 +103,7 @@ func runNoExit(pass *analysis.Pass) (interface{}, error) {
 func main() {
 	var analyzers []*analysis.Analyzer
 
+	// Стандартные анализаторы (без fieldalignment)
 	analyzers = append(analyzers,
 		asmdecl.Analyzer,
 		assign.Analyzer,
@@ -138,16 +139,19 @@ func main() {
 		unusedresult.Analyzer,
 	)
 
+	// SA анализаторы
 	for _, a := range staticcheck.Analyzers {
 		if strings.HasPrefix(a.Analyzer.Name, "SA") {
 			analyzers = append(analyzers, a.Analyzer)
 		}
 	}
 
+	// ST анализаторы
 	for _, a := range stylecheck.Analyzers {
 		analyzers = append(analyzers, a.Analyzer)
 	}
 
+	// Собственный анализатор
 	analyzers = append(analyzers, NoExitAnalyzer)
 
 	multichecker.Main(analyzers...)
