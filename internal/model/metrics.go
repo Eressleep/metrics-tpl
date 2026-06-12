@@ -8,6 +8,7 @@ const (
 	Gauge   = "gauge"
 )
 
+// generate:reset
 type Metrics struct {
 	ID    string   `json:"id"`
 	MType string   `json:"type"`
