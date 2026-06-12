@@ -488,6 +488,7 @@ jobs:
         run: |
           cd cmd/staticlint
           go build -buildvcs=false -o staticlint
+          cd ../..
           ./cmd/staticlint/staticlint ./...
           
 
