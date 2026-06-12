@@ -1,3 +1,4 @@
+// Package model содержит определения метрик и типов данных.
 package model
 
 //go:generate easyjson -all metrics.go

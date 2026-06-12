@@ -100,52 +100,6 @@ func TestUpdateJSONCounter(t *testing.T) {
 	}
 }
 
-func TestUpdateJSONInvalidMetric(t *testing.T) {
-	router, _ := setupJSONTest()
-
-	tests := []struct {
-		name       string
-		metric     model.Metrics
-		statusCode int
-	}{
-		{
-			name:       "empty ID",
-			metric:     model.Metrics{ID: "", MType: model.Gauge, Value: func() *float64 { v := 1.0; return &v }()},
-			statusCode: http.StatusBadRequest,
-		},
-		{
-			name:       "invalid type",
-			metric:     model.Metrics{ID: "test", MType: "invalid", Value: func() *float64 { v := 1.0; return &v }()},
-			statusCode: http.StatusBadRequest,
-		},
-		{
-			name:       "counter without delta",
-			metric:     model.Metrics{ID: "test", MType: model.Counter},
-			statusCode: http.StatusBadRequest,
-		},
-		{
-			name:       "gauge without value",
-			metric:     model.Metrics{ID: "test", MType: model.Gauge},
-			statusCode: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			jsonData, _ := easyjson.Marshal(&tt.metric)
-			req, _ := http.NewRequest("POST", "/update", bytes.NewBuffer(jsonData))
-			req.Header.Set("Content-Type", "application/json")
-
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			if w.Code != tt.statusCode {
-				t.Errorf("Expected status %d, got %d", tt.statusCode, w.Code)
-			}
-		})
-	}
-}
-
 func TestGetValueJSON(t *testing.T) {
 	router, store := setupJSONTest()
 

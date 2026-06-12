@@ -32,40 +32,59 @@ func main() {
 	}
 
 	key := flags.GetConfigString(hashKey, "k", "KEY", "")
-
 	dsn := flags.GetConfigString(databaseDSN, "d", "DATABASE_DSN", "")
 
 	var store storage.Storage
 	var err error
+	var usingDB bool
+	var dbConnectionError error
 
 	if dsn != "" {
+		log.Printf("Attempting to connect to database with DSN: %s", dsn)
 		store, err = storage.NewDBStorage(dsn, nil)
 		if err != nil {
-			log.Fatalf("Failed to initialize database storage: %v", err)
+			dbConnectionError = err
+			log.Printf("WARNING: Failed to initialize database storage: %v", err)
+			log.Printf("WARNING: Falling back to file/memory storage")
+
+			intervalSeconds := flags.GetConfigInt(storeInterval, "i", "STORE_INTERVAL", 300)
+			storeIntervalDuration := time.Duration(intervalSeconds) * time.Second
+			filePath := flags.GetConfigString(storeFile, "f", "FILE_STORAGE_PATH", "/tmp/metrics-db.json")
+			restoreValue := flags.GetConfigBool(restore, "r", "RESTORE", true)
+
+			store, err = storage.NewFileStorage(filePath, storeIntervalDuration, restoreValue, nil)
+			if err != nil {
+				log.Fatalf("Failed to initialize fallback storage: %v", err)
+			}
+			usingDB = false
+		} else {
+			usingDB = true
+			log.Printf("Database storage initialized successfully")
 		}
 	} else {
 		intervalSeconds := flags.GetConfigInt(storeInterval, "i", "STORE_INTERVAL", 300)
 		storeIntervalDuration := time.Duration(intervalSeconds) * time.Second
-
 		filePath := flags.GetConfigString(storeFile, "f", "FILE_STORAGE_PATH", "/tmp/metrics-db.json")
 		restoreValue := flags.GetConfigBool(restore, "r", "RESTORE", true)
 
-		store, err = storage.NewFileStorage(
-			filePath,
-			storeIntervalDuration,
-			restoreValue,
-			nil,
-		)
+		store, err = storage.NewFileStorage(filePath, storeIntervalDuration, restoreValue, nil)
 		if err != nil {
 			log.Fatalf("Failed to initialize storage: %v", err)
 		}
+		usingDB = false
 	}
 
 	metricsHandler := handlers.NewMetricsHandler(store, key)
+	metricsHandler.SetUsingDB(usingDB)
+
+	if dbConnectionError != nil {
+		metricsHandler.SetDBConnectionError(dbConnectionError)
+	}
 
 	srv := server.New(config, metricsHandler)
 
 	fmt.Printf("Starting server on %s\n", config.Addr)
+	fmt.Printf("Using database: %v\n", usingDB)
 	if key != "" {
 		fmt.Printf("Hash key: %s\n", key)
 	}

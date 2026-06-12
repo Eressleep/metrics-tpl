@@ -71,11 +71,10 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		<-sigChan
-		log.Println("Получен сигнал завершения, останавливаем агента...")
-		agt.Stop()
-		os.Exit(0)
+		agt.Run()
 	}()
 
-	agt.Run()
+	<-sigChan
+	log.Println("Получен сигнал завершения, останавливаем агента...")
+	agt.Stop()
 }

@@ -67,9 +67,7 @@ func (p *WorkerPool) Stop() {
 	}
 
 	close(p.stopChan)
-
 	close(p.jobs)
-
 	p.wg.Wait()
 
 	log.Println("Worker pool stopped")

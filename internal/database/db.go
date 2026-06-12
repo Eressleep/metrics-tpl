@@ -1,3 +1,4 @@
+// Package database предоставляет обертку для работы с PostgreSQL.
 package database
 
 import (

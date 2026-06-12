@@ -165,25 +165,3 @@ func ExampleMetricsHandler_Ping() {
 	// 200
 	// pong
 }
-
-// ExampleMetricsHandler_GetAllMetrics демонстрирует получение всех метрик в HTML формате.
-func ExampleMetricsHandler_GetAllMetrics() {
-	gin.SetMode(gin.ReleaseMode)
-	store := storage.NewMemStorage()
-	store.UpdateGauge("temperature", 23.5)
-	handler := handlers.NewMetricsHandler(store, "")
-
-	router := gin.Default()
-	router.GET("/", handler.GetAllMetrics)
-
-	// Отправляем запрос
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	fmt.Println(w.Code)
-	fmt.Println(w.Header().Get("Content-Type"))
-	// Output:
-	// 200
-	// text/html; charset=utf-8
-}

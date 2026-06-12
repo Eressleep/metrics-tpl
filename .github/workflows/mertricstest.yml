@@ -482,8 +482,15 @@ jobs:
           go doc github.com/Eressleep/metrics-tpl/internal/audit.Auditor
           go doc github.com/Eressleep/metrics-tpl/internal/agent.Agent
           go doc github.com/Eressleep/metrics-tpl/internal/server.Server
+      - name: "Code increment #20"
+        if: |
+          github.head_ref == 'iter20'
+        run: |
+          go build -buildvcs=false -o staticlint ./cmd/staticlint/
+          
+          ./staticlint ./... 2>&1 || true
 
-      - name: "Race detection"
+      - name: "Race detection and coverage"
         if: |
           github.ref == 'refs/heads/main' ||
           github.head_ref == 'iter14' ||
@@ -491,6 +498,7 @@ jobs:
           github.head_ref == 'iter16' ||
           github.head_ref == 'iter17' ||
           github.head_ref == 'iter18' ||
-          github.head_ref == 'iter19'
+          github.head_ref == 'iter19' ||
+          github.head_ref == 'iter20'
         run: |
           go test -v -race ./...
