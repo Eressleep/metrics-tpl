@@ -10,10 +10,13 @@ import (
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/agent"
+	"github.com/Eressleep/metrics-tpl/internal/build"
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 )
 
 func main() {
+	build.PrintBuildInfo()
+
 	serverAddr := flag.String("a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
 	reportInterval := flag.Int("r", 10, "частота отправки метрик на сервер (в секундах)")
 	pollInterval := flag.Int("p", 2, "частота опроса метрик из пакета runtime (в секундах)")

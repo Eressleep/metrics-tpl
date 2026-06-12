@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/Eressleep/metrics-tpl/internal/build"
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
 	"github.com/Eressleep/metrics-tpl/internal/server"
@@ -13,6 +14,8 @@ import (
 )
 
 func main() {
+	build.PrintBuildInfo()
+
 	addr := flag.String("a", "localhost:8080", "server address")
 	hashKey := flag.String("k", "", "hash key for signing")
 	auditFile := flag.String("audit-file", "", "path to audit log file")
