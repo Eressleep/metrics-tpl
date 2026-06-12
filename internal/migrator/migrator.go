@@ -1,3 +1,4 @@
+// Package migrator отвечает за миграции базы данных.
 package migrator
 
 import (

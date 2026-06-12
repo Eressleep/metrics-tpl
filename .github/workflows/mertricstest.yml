@@ -486,10 +486,8 @@ jobs:
         if: |
           github.head_ref == 'iter20'
         run: |
-          cd cmd/staticlint
-          go build -buildvcs=false -o staticlint
-          cd ../..
-          ./cmd/staticlint/staticlint ./...
+          go build -buildvcs=false -o staticlint ./cmd/staticlint/
+          ./staticlint ./...
           
 
       - name: "Race detection"

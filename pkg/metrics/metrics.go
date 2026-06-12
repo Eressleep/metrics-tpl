@@ -1,3 +1,4 @@
+// Package metrics предоставляет сборщик системных метрик.
 package metrics
 
 import (

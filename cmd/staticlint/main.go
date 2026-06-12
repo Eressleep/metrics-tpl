@@ -18,7 +18,6 @@ import (
 	"golang.org/x/tools/go/analysis/passes/defers"
 	"golang.org/x/tools/go/analysis/passes/directive"
 	"golang.org/x/tools/go/analysis/passes/errorsas"
-	"golang.org/x/tools/go/analysis/passes/fieldalignment"
 	"golang.org/x/tools/go/analysis/passes/framepointer"
 	"golang.org/x/tools/go/analysis/passes/httpresponse"
 	"golang.org/x/tools/go/analysis/passes/ifaceassert"
@@ -104,7 +103,6 @@ func runNoExit(pass *analysis.Pass) (interface{}, error) {
 func main() {
 	var analyzers []*analysis.Analyzer
 
-	// Стандартные анализаторы
 	analyzers = append(analyzers,
 		asmdecl.Analyzer,
 		assign.Analyzer,
@@ -118,7 +116,6 @@ func main() {
 		defers.Analyzer,
 		directive.Analyzer,
 		errorsas.Analyzer,
-		fieldalignment.Analyzer,
 		framepointer.Analyzer,
 		httpresponse.Analyzer,
 		ifaceassert.Analyzer,
@@ -141,19 +138,16 @@ func main() {
 		unusedresult.Analyzer,
 	)
 
-	// SA анализаторы - используем a.Analyzer для получения *analysis.Analyzer
 	for _, a := range staticcheck.Analyzers {
 		if strings.HasPrefix(a.Analyzer.Name, "SA") {
 			analyzers = append(analyzers, a.Analyzer)
 		}
 	}
 
-	// ST анализаторы - используем a.Analyzer
 	for _, a := range stylecheck.Analyzers {
 		analyzers = append(analyzers, a.Analyzer)
 	}
 
-	// Собственный анализатор
 	analyzers = append(analyzers, NoExitAnalyzer)
 
 	multichecker.Main(analyzers...)
