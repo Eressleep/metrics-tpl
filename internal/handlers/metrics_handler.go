@@ -10,8 +10,14 @@ import (
 
 	"github.com/Eressleep/metrics-tpl/internal/model"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
+	"github.com/Eressleep/metrics-tpl/pkg/pool"
 	"github.com/gin-gonic/gin"
 )
+
+// metricsPool - пул для переиспользования объектов Metrics
+var metricsPool = pool.New(func() *model.Metrics {
+	return &model.Metrics{}
+})
 
 type MetricsHandler struct {
 	storage           storage.Storage
@@ -87,8 +93,10 @@ func (h *MetricsHandler) Update(c *gin.Context) {
 
 // UpdateJSON handles POST /update/ (JSON)
 func (h *MetricsHandler) UpdateJSON(c *gin.Context) {
-	var metric model.Metrics
-	if err := json.NewDecoder(c.Request.Body).Decode(&metric); err != nil {
+	metric := metricsPool.Get()
+	defer metricsPool.Put(metric)
+
+	if err := json.NewDecoder(c.Request.Body).Decode(metric); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
 		return
 	}
@@ -196,8 +204,10 @@ func (h *MetricsHandler) GetValue(c *gin.Context) {
 
 // GetValueJSON handles POST /value/ (JSON)
 func (h *MetricsHandler) GetValueJSON(c *gin.Context) {
-	var metric model.Metrics
-	if err := json.NewDecoder(c.Request.Body).Decode(&metric); err != nil {
+	metric := metricsPool.Get()
+	defer metricsPool.Put(metric)
+
+	if err := json.NewDecoder(c.Request.Body).Decode(metric); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
 		return
 	}

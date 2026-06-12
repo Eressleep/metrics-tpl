@@ -13,9 +13,9 @@
 //	    m.Data = m.Data[:0]
 //	}
 //
-//	pool := pool.New(&MyStruct{})
-//	obj := pool.Get()
-//	defer pool.Put(obj)
+//	p := pool.New(func() *MyStruct { return &MyStruct{} })
+//	obj := p.Get()
+//	defer p.Put(obj)
 //	obj.Data = append(obj.Data, "example")
 package pool
 
@@ -30,7 +30,7 @@ type Resetter interface {
 
 // Pool - generic-пул для объектов с методом Reset
 type Pool[T Resetter] struct {
-	pool  sync.Pool
+	p     sync.Pool
 	newFn func() T
 }
 
@@ -38,8 +38,8 @@ type Pool[T Resetter] struct {
 func New[T Resetter](newFn func() T) *Pool[T] {
 	return &Pool[T]{
 		newFn: newFn,
-		pool: sync.Pool{
-			New: func() interface{} {
+		p: sync.Pool{
+			New: func() any {
 				return newFn()
 			},
 		},
@@ -49,17 +49,17 @@ func New[T Resetter](newFn func() T) *Pool[T] {
 // Get возвращает объект из пула.
 // Если пул пуст, создается новый объект через функцию-конструктор.
 func (p *Pool[T]) Get() T {
-	return p.pool.Get().(T)
+	return p.p.Get().(T)
 }
 
 // Put возвращает объект в пул после сброса его состояния.
 func (p *Pool[T]) Put(item T) {
 	item.Reset()
-	p.pool.Put(item)
+	p.p.Put(item)
 }
 
 // PutWithoutReset возвращает объект в пул без сброса.
 // Используйте только если уверены, что сброс не нужен.
 func (p *Pool[T]) PutWithoutReset(item T) {
-	p.pool.Put(item)
+	p.p.Put(item)
 }

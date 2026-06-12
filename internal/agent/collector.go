@@ -6,7 +6,20 @@ import (
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/pkg/metrics"
+	"github.com/Eressleep/metrics-tpl/pkg/pool"
 )
+
+// metricValuePool - пул для значений метрик (float64)
+var metricValuePool = pool.New(func() *float64 {
+	v := 0.0
+	return &v
+})
+
+// counterValuePool - пул для значений счетчиков (int64)
+var counterValuePool = pool.New(func() *int64 {
+	v := int64(0)
+	return &v
+})
 
 type Collector struct {
 	metrics      *metrics.Metrics
@@ -74,6 +87,15 @@ func (c *Collector) collect() {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Используем pool для временных значений
+	gaugeValue := metricValuePool.Get()
+	*gaugeValue = 0
+	defer metricValuePool.Put(gaugeValue)
+
+	counterDelta := counterValuePool.Get()
+	*counterDelta = 0
+	defer counterValuePool.Put(counterDelta)
 
 	c.metrics.UpdateRuntime()
 	c.metrics.UpdateGopsutil()
