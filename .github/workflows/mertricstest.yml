@@ -496,7 +496,6 @@ jobs:
           github.head_ref == 'iter21'
         run: |
           go run ./cmd/reset/
-          go generate ./...
 
       - name: "Race detection and coverage"
         if: |

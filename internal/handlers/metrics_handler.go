@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// generate:reset
 type MetricsHandler struct {
 	storage           storage.Storage
 	hashKey           string

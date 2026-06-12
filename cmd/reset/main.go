@@ -1,24 +1,3 @@
-// Package main предоставляет утилиту для генерации методов Reset() для структур.
-//
-// Утилита сканирует все пакеты в проекте, находит структуры с комментарием
-// // generate:reset и генерирует для них метод Reset(), который сбрасывает
-// все поля структуры к нулевым значениям.
-//
-// Правила сброса:
-//   - Примитивы (int, string, bool, float и т.д.) → нулевые значения
-//   - Слайсы → обрезаются до нулевой длины (s = s[:0])
-//   - Мапы → очищаются через clear()
-//   - Указатели → сбрасываются значения по адресу
-//   - Вложенные структуры с методом Reset() → вызывают Reset()
-//
-// Использование:
-//
-//	go run ./cmd/reset/
-//	go generate ./...
-//
-// Для автоматической генерации добавьте в файл с типами:
-//
-//	//go:generate go run github.com/Eressleep/metrics-tpl/cmd/reset
 package main
 
 import (
@@ -34,13 +13,11 @@ import (
 	"text/template"
 )
 
-// StructInfo содержит информацию о структуре для генерации
 type StructInfo struct {
 	Name   string
 	Fields []FieldInfo
 }
 
-// FieldInfo содержит информацию о поле структуры
 type FieldInfo struct {
 	Name        string
 	Type        string
@@ -49,10 +26,10 @@ type FieldInfo struct {
 	IsMap       bool
 	IsStruct    bool
 	IsPrimitive bool
-	ElemType    string // для указателей, слайсов, мапов
+	ElemType    string
+	ResetCode   string
 }
 
-// PackageInfo содержит информацию о пакете
 type PackageInfo struct {
 	Name    string
 	Dir     string
@@ -79,21 +56,20 @@ func (rs *{{.Name}}) Reset() {
 `
 
 func main() {
-	// Находим корневую директорию проекта (где находится go.mod)
-	rootDir, err := findModuleRoot()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error finding module root: %v\n", err)
+	rootDir := findModuleRoot()
+	if rootDir == "" {
+		fmt.Fprintf(os.Stderr, "Error: cannot find module root\n")
 		os.Exit(1)
 	}
 
-	// Сканируем все пакеты
+	fmt.Printf("Module root: %s\n", rootDir)
+
 	packages, err := scanPackages(rootDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error scanning packages: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Генерируем файлы для каждого пакета
 	for _, pkg := range packages {
 		if len(pkg.Structs) == 0 {
 			continue
@@ -108,7 +84,6 @@ func main() {
 	}
 }
 
-// findModuleRoot находит корневую директорию модуля (где go.mod)
 func findModuleRoot() string {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -119,7 +94,6 @@ func findModuleRoot() string {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}
-
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return ""
@@ -128,9 +102,7 @@ func findModuleRoot() string {
 	}
 }
 
-// scanPackages сканирует все пакеты в директории
 func scanPackages(rootDir string) ([]PackageInfo, error) {
-	var packages []PackageInfo
 	pkgMap := make(map[string]*PackageInfo)
 
 	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
@@ -138,7 +110,6 @@ func scanPackages(rootDir string) ([]PackageInfo, error) {
 			return err
 		}
 
-		// Пропускаем директории, которые не должны сканироваться
 		if info.IsDir() {
 			name := info.Name()
 			if name == ".git" || name == "vendor" || name == ".tools" ||
@@ -148,14 +119,12 @@ func scanPackages(rootDir string) ([]PackageInfo, error) {
 			return nil
 		}
 
-		// Обрабатываем только .go файлы (не сгенерированные и не тестовые)
 		if !strings.HasSuffix(path, ".go") ||
 			strings.HasSuffix(path, "_test.go") ||
 			strings.HasSuffix(path, ".gen.go") {
 			return nil
 		}
 
-		// Парсим файл
 		structs, err := parseFile(path)
 		if err != nil {
 			return fmt.Errorf("error parsing %s: %w", path, err)
@@ -165,7 +134,6 @@ func scanPackages(rootDir string) ([]PackageInfo, error) {
 			return nil
 		}
 
-		// Определяем пакет
 		dir := filepath.Dir(path)
 		pkgName := filepath.Base(dir)
 
@@ -177,7 +145,6 @@ func scanPackages(rootDir string) ([]PackageInfo, error) {
 		}
 
 		pkgMap[dir].Structs = append(pkgMap[dir].Structs, structs...)
-
 		return nil
 	})
 
@@ -185,6 +152,7 @@ func scanPackages(rootDir string) ([]PackageInfo, error) {
 		return nil, err
 	}
 
+	var packages []PackageInfo
 	for _, pkg := range pkgMap {
 		packages = append(packages, *pkg)
 	}
@@ -192,7 +160,6 @@ func scanPackages(rootDir string) ([]PackageInfo, error) {
 	return packages, nil
 }
 
-// parseFile парсит файл и находит структуры с комментарием // generate:reset
 func parseFile(filename string) ([]StructInfo, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
@@ -202,14 +169,12 @@ func parseFile(filename string) ([]StructInfo, error) {
 
 	var structs []StructInfo
 
-	// Ищем структуры с комментарием // generate:reset
 	for _, decl := range file.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok {
 			continue
 		}
 
-		// Проверяем комментарий
 		if !hasGenerateComment(genDecl.Doc) {
 			continue
 		}
@@ -229,10 +194,9 @@ func parseFile(filename string) ([]StructInfo, error) {
 				Name: typeSpec.Name.Name,
 			}
 
-			// Обрабатываем поля структуры
 			for _, field := range structType.Fields.List {
 				if len(field.Names) == 0 {
-					continue // пропускаем встроенные поля
+					continue
 				}
 
 				fieldInfo := parseField(field)
@@ -246,22 +210,18 @@ func parseFile(filename string) ([]StructInfo, error) {
 	return structs, nil
 }
 
-// hasGenerateComment проверяет наличие комментария // generate:reset
 func hasGenerateComment(doc *ast.CommentGroup) bool {
 	if doc == nil {
 		return false
 	}
-
 	for _, comment := range doc.List {
 		if strings.Contains(comment.Text, "generate:reset") {
 			return true
 		}
 	}
-
 	return false
 }
 
-// parseField анализирует поле структуры
 func parseField(field *ast.Field) FieldInfo {
 	fieldInfo := FieldInfo{
 		Name: field.Names[0].Name,
@@ -272,7 +232,6 @@ func parseField(field *ast.Field) FieldInfo {
 
 	switch t := field.Type.(type) {
 	case *ast.Ident:
-		// Примитивный тип или структура
 		if isPrimitive(t.Name) {
 			fieldInfo.IsPrimitive = true
 		} else {
@@ -280,28 +239,24 @@ func parseField(field *ast.Field) FieldInfo {
 		}
 
 	case *ast.StarExpr:
-		// Указатель
 		fieldInfo.IsPointer = true
 		if ident, ok := t.X.(*ast.Ident); ok {
 			fieldInfo.ElemType = ident.Name
 		}
 
 	case *ast.ArrayType:
-		// Слайс
 		fieldInfo.IsSlice = true
 		if ident, ok := t.Elt.(*ast.Ident); ok {
 			fieldInfo.ElemType = ident.Name
 		}
 
 	case *ast.MapType:
-		// Мапа
 		fieldInfo.IsMap = true
 	}
 
 	return fieldInfo
 }
 
-// typeToString преобразует AST-тип в строку
 func typeToString(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -319,7 +274,6 @@ func typeToString(expr ast.Expr) string {
 	}
 }
 
-// isPrimitive проверяет, является ли тип примитивным
 func isPrimitive(typeName string) bool {
 	primitives := map[string]bool{
 		"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
@@ -329,13 +283,19 @@ func isPrimitive(typeName string) bool {
 		"string": true, "bool": true,
 		"byte": true, "rune": true,
 	}
-
 	return primitives[typeName]
 }
 
-// generateResetFile генерирует файл reset.gen.go для пакета
+func isInterfaceType(typeName string) bool {
+	interfaces := map[string]bool{
+		"error":       true,
+		"interface{}": true,
+		"any":         true,
+	}
+	return interfaces[typeName]
+}
+
 func generateResetFile(pkg PackageInfo) error {
-	// Добавляем код сброса для каждого поля
 	for i := range pkg.Structs {
 		for j := range pkg.Structs[i].Fields {
 			code := generateResetCode(pkg.Structs[i].Fields[j])
@@ -343,7 +303,6 @@ func generateResetFile(pkg PackageInfo) error {
 		}
 	}
 
-	// Генерируем файл по шаблону
 	tmpl, err := template.New("reset").Parse(resetTemplate)
 	if err != nil {
 		return err
@@ -362,18 +321,15 @@ func generateResetFile(pkg PackageInfo) error {
 		return err
 	}
 
-	// Форматируем код
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
-		return fmt.Errorf("error formatting generated code: %w\nGenerated code:\n%s", err, buf.String())
+		return fmt.Errorf("error formatting: %w\nCode:\n%s", err, buf.String())
 	}
 
-	// Записываем файл
 	outputPath := filepath.Join(pkg.Dir, "reset.gen.go")
 	return os.WriteFile(outputPath, formatted, 0644)
 }
 
-// generateResetCode генерирует код сброса для поля
 func generateResetCode(field FieldInfo) string {
 	if field.IsSlice {
 		return fmt.Sprintf("rs.%s = rs.%s[:0]", field.Name, field.Name)
@@ -384,9 +340,14 @@ func generateResetCode(field FieldInfo) string {
 	}
 
 	if field.IsPointer {
-		return fmt.Sprintf(`if rs.%s != nil {
+		if isPrimitive(field.ElemType) || isInterfaceType(field.ElemType) {
+			return fmt.Sprintf(`if rs.%s != nil {
 	*rs.%s = %s
 }`, field.Name, field.Name, zeroValue(field.ElemType))
+		}
+		return fmt.Sprintf(`if rs.%s != nil {
+	rs.%s.Reset()
+}`, field.Name, field.Name)
 	}
 
 	if field.IsPrimitive {
@@ -394,15 +355,17 @@ func generateResetCode(field FieldInfo) string {
 	}
 
 	if field.IsStruct {
-		return fmt.Sprintf(`if resetter, ok := interface{}(&rs.%s).(interface{ Reset() }); ok {
-	resetter.Reset()
-}`, field.Name)
+		if isInterfaceType(field.Type) {
+			return fmt.Sprintf("rs.%s = nil", field.Name)
+		}
+		return fmt.Sprintf(`if rs.%s != nil {
+	rs.%s.Reset()
+}`, field.Name, field.Name)
 	}
 
 	return fmt.Sprintf("// TODO: reset field %s of type %s", field.Name, field.Type)
 }
 
-// zeroValue возвращает нулевое значение для типа
 func zeroValue(typeName string) string {
 	switch typeName {
 	case "string":
@@ -415,6 +378,8 @@ func zeroValue(typeName string) string {
 		return "0"
 	case "bool":
 		return "false"
+	case "error", "interface{}", "any":
+		return "nil"
 	default:
 		return "nil"
 	}
