@@ -501,6 +501,4 @@ jobs:
           github.head_ref == 'iter19' ||
           github.head_ref == 'iter20'
         run: |
-          go test -v -race -coverprofile=coverage.out ./...
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
-          echo "Code coverage: ${COVERAGE}%"
+          go test -v -race ./...
