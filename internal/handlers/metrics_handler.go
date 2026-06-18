@@ -1,266 +1,56 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	"html/template"
 	"net/http"
-	"regexp"
 	"strconv"
-	"time"
+	"strings"
 
 	"github.com/Eressleep/metrics-tpl/internal/model"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
+	"github.com/Eressleep/metrics-tpl/pkg/pool"
 	"github.com/gin-gonic/gin"
-	"github.com/mailru/easyjson"
 )
 
-func isValidMetricName(name string) bool {
-	if len(name) == 0 || len(name) > 100 {
-		return false
-	}
-	matched, _ := regexp.MatchString(`^[a-zA-Z0-9_]+$`, name)
-	return matched
-}
+// metricsPool - пул для переиспользования объектов Metrics
+var metricsPool = pool.New(func() *model.Metrics {
+	return &model.Metrics{}
+})
 
 type MetricsHandler struct {
-	storage storage.Storage
-	hashKey string
+	storage           storage.Storage
+	hashKey           string
+	usingDB           bool
+	dbConnectionError error
 }
 
-func NewMetricsHandler(storage storage.Storage, hashKey string) *MetricsHandler {
+func NewMetricsHandler(store storage.Storage, hashKey string) *MetricsHandler {
 	return &MetricsHandler{
-		storage: storage,
+		storage: store,
 		hashKey: hashKey,
+		usingDB: false,
 	}
+}
+
+func (h *MetricsHandler) SetUsingDB(usingDB bool) {
+	h.usingDB = usingDB
+}
+
+func (h *MetricsHandler) IsUsingDB() bool {
+	return h.usingDB
+}
+
+func (h *MetricsHandler) SetDBConnectionError(err error) {
+	h.dbConnectionError = err
 }
 
 func (h *MetricsHandler) GetHashKey() string {
 	return h.hashKey
 }
 
-func (h *MetricsHandler) UpdateJSON(c *gin.Context) {
-	if c.GetHeader("Content-Type") != "application/json" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Content-Type must be application/json"})
-		return
-	}
-
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
-		return
-	}
-	defer c.Request.Body.Close()
-
-	var metric model.Metrics
-	if err := easyjson.Unmarshal(body, &metric); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON format: " + err.Error()})
-		return
-	}
-
-	if metric.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "metric ID is required"})
-		return
-	}
-
-	if !isValidMetricName(metric.ID) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric name format"})
-		return
-	}
-
-	if metric.MType != model.Counter && metric.MType != model.Gauge {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unknown metric type: %s", metric.MType)})
-		return
-	}
-
-	switch metric.MType {
-	case model.Counter:
-		if metric.Delta == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "delta is required for counter metric"})
-			return
-		}
-		if err := h.storage.UpdateCounter(metric.ID, *metric.Delta); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		if value, err := h.storage.GetCounter(metric.ID); err == nil {
-			metric.Delta = &value
-		}
-
-	case model.Gauge:
-		if metric.Value == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "value is required for gauge metric"})
-			return
-		}
-		if err := h.storage.UpdateGauge(metric.ID, *metric.Value); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		if value, err := h.storage.GetGauge(metric.ID); err == nil {
-			metric.Value = &value
-		}
-	}
-
-	responseData, err := easyjson.Marshal(&metric)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode response"})
-		return
-	}
-
-	c.Data(http.StatusOK, "application/json", responseData)
-}
-
-func (h *MetricsHandler) UpdateBatch(c *gin.Context) {
-	if c.GetHeader("Content-Type") != "application/json" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Content-Type must be application/json"})
-		return
-	}
-
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
-		return
-	}
-	defer c.Request.Body.Close()
-
-	var batch []model.Metrics
-	if err := json.Unmarshal(body, &batch); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON format: " + err.Error()})
-		return
-	}
-
-	if len(batch) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "empty batch"})
-		return
-	}
-
-	metrics := make([]storage.Metrics, len(batch))
-	validCount := 0
-
-	for i := range batch {
-		metric := &batch[i]
-
-		if metric.ID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "metric ID is required"})
-			return
-		}
-
-		if !isValidMetricName(metric.ID) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid metric name format: %s", metric.ID)})
-			return
-		}
-
-		if metric.MType != model.Counter && metric.MType != model.Gauge {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unknown metric type: %s", metric.MType)})
-			return
-		}
-
-		switch metric.MType {
-		case model.Counter:
-			if metric.Delta == nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("delta is required for counter metric: %s", metric.ID)})
-				return
-			}
-			metrics[validCount] = storage.Metrics{
-				ID:    metric.ID,
-				MType: metric.MType,
-				Delta: metric.Delta,
-			}
-			validCount++
-		case model.Gauge:
-			if metric.Value == nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("value is required for gauge metric: %s", metric.ID)})
-				return
-			}
-			metrics[validCount] = storage.Metrics{
-				ID:    metric.ID,
-				MType: metric.MType,
-				Value: metric.Value,
-			}
-			validCount++
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-
-	if err := h.storage.BatchUpdate(ctx, metrics[:validCount]); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.Status(http.StatusOK)
-}
-
-func (h *MetricsHandler) GetValueJSON(c *gin.Context) {
-	if c.GetHeader("Content-Type") != "application/json" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Content-Type must be application/json"})
-		return
-	}
-
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
-		return
-	}
-	defer c.Request.Body.Close()
-
-	var request model.Metrics
-	if err := easyjson.Unmarshal(body, &request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON format: " + err.Error()})
-		return
-	}
-
-	if request.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "metric ID is required"})
-		return
-	}
-
-	if !isValidMetricName(request.ID) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric name format"})
-		return
-	}
-
-	if request.MType != model.Counter && request.MType != model.Gauge {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unknown metric type: %s", request.MType)})
-		return
-	}
-
-	response := model.Metrics{
-		ID:    request.ID,
-		MType: request.MType,
-	}
-
-	switch request.MType {
-	case model.Counter:
-		value, err := h.storage.GetCounter(request.ID)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("counter %s not found", request.ID)})
-			return
-		}
-		response.Delta = &value
-
-	case model.Gauge:
-		value, err := h.storage.GetGauge(request.ID)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("gauge %s not found", request.ID)})
-			return
-		}
-		response.Value = &value
-	}
-
-	responseData, err := easyjson.Marshal(&response)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode response"})
-		return
-	}
-
-	c.Data(http.StatusOK, "application/json", responseData)
-}
-
+// Update handles POST /update/:type/:name/:value
 func (h *MetricsHandler) Update(c *gin.Context) {
 	metricType := c.Param("type")
 	metricName := c.Param("name")
@@ -271,41 +61,116 @@ func (h *MetricsHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if !isValidMetricName(metricName) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric name format"})
-		return
-	}
-
-	if metricValue == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "metric value is required"})
-		return
-	}
-
-	contentType := c.GetHeader("Content-Type")
-	if contentType != "" && contentType != "text/plain" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid content type, expected text/plain"})
-		return
-	}
-
 	switch metricType {
-	case model.Counter:
-		if err := h.handleCounter(metricName, metricValue); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
 	case model.Gauge:
-		if err := h.handleGauge(metricName, metricValue); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		value, err := strconv.ParseFloat(metricValue, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid gauge value"})
 			return
 		}
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown metric type"})
-		return
-	}
+		if err := h.storage.UpdateGauge(metricName, value); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 
-	c.Status(http.StatusOK)
+	case model.Counter:
+		value, err := strconv.ParseInt(metricValue, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid counter value"})
+			return
+		}
+		if err := h.storage.UpdateCounter(metricName, value); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric type"})
+	}
 }
 
+// UpdateJSON handles POST /update/ (JSON)
+func (h *MetricsHandler) UpdateJSON(c *gin.Context) {
+	metric := metricsPool.Get()
+	defer metricsPool.Put(metric)
+
+	if err := json.NewDecoder(c.Request.Body).Decode(metric); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	if metric.ID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "metric name is required"})
+		return
+	}
+
+	switch metric.MType {
+	case model.Gauge:
+		if metric.Value == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "gauge value is required"})
+			return
+		}
+		if err := h.storage.UpdateGauge(metric.ID, *metric.Value); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		updatedValue, _ := h.storage.GetGauge(metric.ID)
+		c.JSON(http.StatusOK, model.Metrics{
+			ID:    metric.ID,
+			MType: model.Gauge,
+			Value: &updatedValue,
+		})
+
+	case model.Counter:
+		if metric.Delta == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "counter delta is required"})
+			return
+		}
+		if err := h.storage.UpdateCounter(metric.ID, *metric.Delta); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		updatedValue, _ := h.storage.GetCounter(metric.ID)
+		c.JSON(http.StatusOK, model.Metrics{
+			ID:    metric.ID,
+			MType: model.Counter,
+			Delta: &updatedValue,
+		})
+
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric type"})
+	}
+}
+
+// UpdateBatch handles POST /updates/ (batch)
+func (h *MetricsHandler) UpdateBatch(c *gin.Context) {
+	var metrics []model.Metrics
+	if err := json.NewDecoder(c.Request.Body).Decode(&metrics); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	storageMetrics := make([]storage.Metrics, len(metrics))
+	for i, m := range metrics {
+		storageMetrics[i] = storage.Metrics{
+			ID:    m.ID,
+			MType: m.MType,
+			Delta: m.Delta,
+			Value: m.Value,
+		}
+	}
+
+	if err := h.storage.BatchUpdate(c.Request.Context(), storageMetrics); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// GetValue handles GET /value/:type/:name
 func (h *MetricsHandler) GetValue(c *gin.Context) {
 	metricType := c.Param("type")
 	metricName := c.Param("name")
@@ -315,115 +180,147 @@ func (h *MetricsHandler) GetValue(c *gin.Context) {
 		return
 	}
 
-	if !isValidMetricName(metricName) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric name format"})
-		return
-	}
-
 	switch metricType {
-	case model.Counter:
-		value, err := h.storage.GetCounter(metricName)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("counter %s not found", metricName)})
-			return
-		}
-		c.String(http.StatusOK, "%d", value)
-
 	case model.Gauge:
 		value, err := h.storage.GetGauge(metricName)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("gauge %s not found", metricName)})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		c.String(http.StatusOK, "%g", value)
+		c.String(http.StatusOK, strconv.FormatFloat(value, 'g', -1, 64))
+
+	case model.Counter:
+		value, err := h.storage.GetCounter(metricName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.String(http.StatusOK, strconv.FormatInt(value, 10))
 
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown metric type"})
-		return
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric type"})
 	}
 }
 
+// GetValueJSON handles POST /value/ (JSON)
+func (h *MetricsHandler) GetValueJSON(c *gin.Context) {
+	metric := metricsPool.Get()
+	defer metricsPool.Put(metric)
+
+	if err := json.NewDecoder(c.Request.Body).Decode(metric); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	if metric.ID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "metric name is required"})
+		return
+	}
+
+	switch metric.MType {
+	case model.Gauge:
+		value, err := h.storage.GetGauge(metric.ID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, model.Metrics{
+			ID:    metric.ID,
+			MType: model.Gauge,
+			Value: &value,
+		})
+
+	case model.Counter:
+		value, err := h.storage.GetCounter(metric.ID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, model.Metrics{
+			ID:    metric.ID,
+			MType: model.Counter,
+			Delta: &value,
+		})
+
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid metric type"})
+	}
+}
+
+// GetAllMetrics handles GET /
 func (h *MetricsHandler) GetAllMetrics(c *gin.Context) {
 	gauges := h.storage.GetAllGauges()
 	counters := h.storage.GetAllCounters()
 
-	html := "<!DOCTYPE html><html><head><title>Metrics</title><style>"
-	html += "body{font-family:Arial;margin:20px;background:#f5f5f5}"
-	html += "h1{color:#333} h2{color:#666}"
-	html += "table{border-collapse:collapse;width:100%;background:white;box-shadow:0 2px 5px rgba(0,0,0,0.1)}"
-	html += "th,td{text-align:left;padding:12px;border-bottom:1px solid #ddd}"
-	html += "th{background:#4CAF50;color:white}"
-	html += "tr:hover{background:#f5f5f5}"
-	html += ".counter{background:#e7f3ff}"
-	html += ".stats{margin:20px 0;padding:15px;background:white;border-radius:5px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}"
-	html += "</style></head><body>"
-
-	html += "<h1>📊 Metrics Dashboard</h1>"
-
-	html += "<div class='stats'>"
-	html += fmt.Sprintf("<p><strong>Total Gauges:</strong> %d</p>", len(gauges))
-	html += fmt.Sprintf("<p><strong>Total Counters:</strong> %d</p>", len(counters))
-	html += fmt.Sprintf("<p><strong>Total Metrics:</strong> %d</p>", len(gauges)+len(counters))
-	html += "</div>"
-
-	html += "<h2>📈 Gauge Metrics</h2>"
-	if len(gauges) > 0 {
-		html += "<table><tr><th>Metric Name</th><th>Value</th></tr>"
-		for name, value := range gauges {
-			html += fmt.Sprintf("<tr><td>%s</td><td>%g</td></tr>", name, value)
-		}
-		html += "</table>"
-	} else {
-		html += "<p>No gauge metrics available</p>"
+	html := "<html><body><h1>Metrics</h1>"
+	html += "<h2>Gauges</h2><ul>"
+	for name, value := range gauges {
+		html += fmt.Sprintf("<li>%s: %f</li>", template.HTMLEscapeString(name), value)
 	}
-
-	html += "<h2>🔢 Counter Metrics</h2>"
-	if len(counters) > 0 {
-		html += "<table><tr><th>Metric Name</th><th>Value</th></tr>"
-		for name, value := range counters {
-			html += fmt.Sprintf("<tr class='counter'><td>%s</td><td>%d</td></tr>", name, value)
-		}
-		html += "</table>"
-	} else {
-		html += "<p>No counter metrics available</p>"
+	html += "</ul>"
+	html += "<h2>Counters</h2><ul>"
+	for name, value := range counters {
+		html += fmt.Sprintf("<li>%s: %d</li>", template.HTMLEscapeString(name), value)
 	}
-
-	html += "</body></html>"
+	html += "</ul></body></html>"
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, html)
 }
 
-func (h *MetricsHandler) handleCounter(name, valueStr string) error {
-	value, err := strconv.ParseInt(valueStr, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid counter value: %w", err)
-	}
-	return h.storage.UpdateCounter(name, value)
-}
-
-func (h *MetricsHandler) handleGauge(name, valueStr string) error {
-	value, err := strconv.ParseFloat(valueStr, 64)
-	if err != nil {
-		return fmt.Errorf("invalid gauge value: %w", err)
-	}
-	return h.storage.UpdateGauge(name, value)
-}
-
+// Ping handles GET /ping
 func (h *MetricsHandler) Ping(c *gin.Context) {
-	c.String(http.StatusOK, "pong")
-}
-
-func (h *MetricsHandler) PingDB(c *gin.Context) {
-	type pinger interface {
-		Ping() error
-	}
-
-	if pinger, ok := h.storage.(pinger); ok {
-		if err := pinger.Ping(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "database connection failed"})
+	if h.dbConnectionError != nil {
+		errStr := h.dbConnectionError.Error()
+		if strings.Contains(errStr, "invalid") || strings.Contains(errStr, "unknown") {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("database connection failed: %v", h.dbConnectionError),
+			})
 			return
 		}
 	}
+
+	if h.usingDB {
+		if pingable, ok := h.storage.(interface{ Ping() error }); ok {
+			if err := pingable.Ping(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": fmt.Sprintf("database ping failed: %v", err),
+				})
+				return
+			}
+		}
+	}
+
 	c.String(http.StatusOK, "pong")
+}
+
+// PingDB handles GET /ping-db
+func (h *MetricsHandler) PingDB(c *gin.Context) {
+	if !h.usingDB {
+		if h.dbConnectionError != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("database connection failed: %v", h.dbConnectionError),
+			})
+			return
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "database is not configured",
+		})
+		return
+	}
+
+	if pingable, ok := h.storage.(interface{ Ping() error }); ok {
+		if err := pingable.Ping(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("database ping failed: %v", err),
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		return
+	}
+
+	c.JSON(http.StatusServiceUnavailable, gin.H{
+		"error": "ping not supported for this storage type",
+	})
 }

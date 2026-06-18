@@ -254,7 +254,6 @@ func (fs *FileStorage) Stop() error {
 	fs.mu.Unlock()
 
 	close(fs.stopChan)
-
 	fs.wg.Wait()
 
 	return fs.saveToFile()

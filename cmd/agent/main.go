@@ -10,10 +10,23 @@ import (
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/agent"
+	"github.com/Eressleep/metrics-tpl/internal/build"
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 )
 
+var (
+	buildVersion = "N/A"
+	buildDate    = "N/A"
+	buildCommit  = "N/A"
+)
+
 func main() {
+	build.Version = buildVersion
+	build.Date = buildDate
+	build.Commit = buildCommit
+
+	build.PrintBuildInfo()
+
 	serverAddr := flag.String("a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
 	reportInterval := flag.Int("r", 10, "частота отправки метрик на сервер (в секундах)")
 	pollInterval := flag.Int("p", 2, "частота опроса метрик из пакета runtime (в секундах)")
@@ -71,11 +84,10 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		<-sigChan
-		log.Println("Получен сигнал завершения, останавливаем агента...")
-		agt.Stop()
-		os.Exit(0)
+		agt.Run()
 	}()
 
-	agt.Run()
+	<-sigChan
+	log.Println("Получен сигнал завершения, останавливаем агента...")
+	agt.Stop()
 }

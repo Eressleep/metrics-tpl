@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/migrator"
+	"github.com/Eressleep/metrics-tpl/internal/utils"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
@@ -16,6 +17,7 @@ type DBStorage struct {
 	db     *sql.DB
 	logger *zap.Logger
 	mu     sync.RWMutex
+	dsn    string
 }
 
 func NewDBStorage(dsn string, logger *zap.Logger) (*DBStorage, error) {
@@ -45,11 +47,14 @@ func NewDBStorage(dsn string, logger *zap.Logger) (*DBStorage, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	logger.Info("Database connection established successfully")
+	safeDSN := utils.MaskDSN(dsn)
+	logger.Info("Database connection established successfully",
+		zap.String("dsn", safeDSN))
 
 	return &DBStorage{
 		db:     db,
 		logger: logger,
+		dsn:    dsn,
 	}, nil
 }
 

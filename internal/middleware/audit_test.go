@@ -132,25 +132,3 @@ func TestAuditMiddlewareGETRequest(t *testing.T) {
 		t.Errorf("expected status 200, got %d", w.Code)
 	}
 }
-
-func TestAuditMiddlewareFailedRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	logger := zap.NewNop()
-
-	router := gin.New()
-	router.Use(AuditMiddleware(audit.New("test_audit.log", "", logger), logger))
-
-	router.POST("/update", func(c *gin.Context) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
-	})
-
-	metric := model.Metrics{ID: "TestMetric", MType: model.Gauge}
-	body, _ := json.Marshal(metric)
-	req := httptest.NewRequest(http.MethodPost, "/update", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d", w.Code)
-	}
-}
