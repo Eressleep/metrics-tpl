@@ -42,67 +42,121 @@ import (
 	"honnef.co/go/tools/stylecheck"
 )
 
-var NoExitAnalyzer = &analysis.Analyzer{
-	Name: "noexit",
-	Doc:  "запрещает прямой вызов os.Exit в функции main пакета main",
-	Run:  runNoExit,
-}
-
-func runNoExit(pass *analysis.Pass) (interface{}, error) {
-	if pass.Pkg.Name() != "main" {
-		return nil, nil
+var (
+	ExitCheckAnalyzer = &analysis.Analyzer{
+		Name: "exitcheck",
+		Doc:  "запрещает вызовы panic, log.Fatal, log.Panic и os.Exit вне функции main.main",
+		Run:  runExitCheck,
 	}
+)
 
+func runExitCheck(pass *analysis.Pass) (interface{}, error) {
 	for _, file := range pass.Files {
 		filename := pass.Fset.Position(file.Pos()).Filename
-		if !strings.HasSuffix(filename, ".go") || strings.HasSuffix(filename, "_test.go") {
+
+		if strings.HasSuffix(filename, "_test.go") {
+			continue
+		}
+
+		if strings.HasSuffix(filename, ".gen.go") {
 			continue
 		}
 
 		ast.Inspect(file, func(node ast.Node) bool {
-			funcDecl, ok := node.(*ast.FuncDecl)
-			if !ok || funcDecl.Name.Name != "main" {
-				return true
+			switch n := node.(type) {
+			case *ast.FuncDecl:
+				checkFunction(pass, n, file)
 			}
-
-			if funcDecl.Type.Params != nil && len(funcDecl.Type.Params.List) > 0 {
-				return true
-			}
-
-			ast.Inspect(funcDecl.Body, func(n ast.Node) bool {
-				callExpr, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-
-				selExpr, ok := callExpr.Fun.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-
-				ident, ok := selExpr.X.(*ast.Ident)
-				if !ok || ident.Name != "os" {
-					return true
-				}
-
-				if selExpr.Sel.Name == "Exit" {
-					pass.Reportf(callExpr.Pos(), "прямой вызов os.Exit в функции main пакета main запрещен")
-				}
-
-				return true
-			})
-
-			return false
+			return true
 		})
 	}
 
 	return nil, nil
 }
 
+func checkFunction(pass *analysis.Pass, fn *ast.FuncDecl, file *ast.File) {
+	funcName := fn.Name.Name
+	pkgName := file.Name.Name
+
+	if strings.HasSuffix(funcName, "_test") || strings.HasPrefix(funcName, "Test") {
+		return
+	}
+
+	isMainMain := pkgName == "main" && funcName == "main"
+
+	if fn.Body != nil {
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			return checkNode(pass, n, funcName, pkgName, isMainMain)
+		})
+	}
+}
+
+func checkNode(pass *analysis.Pass, n ast.Node, funcName, pkgName string, isMainMain bool) bool {
+	switch node := n.(type) {
+	case *ast.CallExpr:
+		return checkCallExpr(pass, node, funcName, pkgName, isMainMain)
+	case *ast.GoStmt:
+		ast.Inspect(node.Call, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				return checkCallExpr(pass, call, funcName+" (goroutine)", pkgName, false)
+			}
+			return true
+		})
+	case *ast.DeferStmt:
+		ast.Inspect(node.Call, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				return checkCallExpr(pass, call, funcName+" (defer)", pkgName, false)
+			}
+			return true
+		})
+	}
+	return true
+}
+
+func checkCallExpr(pass *analysis.Pass, call *ast.CallExpr, funcName, pkgName string, isMainMain bool) bool {
+	if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "panic" {
+		pass.Reportf(call.Pos(),
+			"вызов panic в функции %s пакета %s запрещен (используйте возврат ошибок)",
+			funcName, pkgName)
+		return false
+	}
+
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if ident, ok := sel.X.(*ast.Ident); ok {
+			if ident.Name == "log" {
+				if strings.HasPrefix(sel.Sel.Name, "Fatal") ||
+					strings.HasPrefix(sel.Sel.Name, "Panic") {
+					pass.Reportf(call.Pos(),
+						"вызов log.%s в функции %s пакета %s запрещен (используйте возврат ошибок)",
+						sel.Sel.Name, funcName, pkgName)
+					return false
+				}
+			}
+
+			if ident.Name == "os" && sel.Sel.Name == "Exit" {
+				if !isMainMain {
+					pass.Reportf(call.Pos(),
+						"вызов os.Exit в функции %s пакета %s запрещен (разрешен только в main.main)",
+						funcName, pkgName)
+					return false
+				}
+			}
+
+			if ident.Name == "logger" && (sel.Sel.Name == "Fatal" || sel.Sel.Name == "Panic") {
+				pass.Reportf(call.Pos(),
+					"вызов logger.%s в функции %s пакета %s запрещен (используйте возврат ошибок)",
+					sel.Sel.Name, funcName, pkgName)
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func main() {
 	var analyzers []*analysis.Analyzer
 
-	// Стандартные анализаторы (без fieldalignment)
 	analyzers = append(analyzers,
 		asmdecl.Analyzer,
 		assign.Analyzer,
@@ -148,7 +202,7 @@ func main() {
 		analyzers = append(analyzers, a.Analyzer)
 	}
 
-	analyzers = append(analyzers, NoExitAnalyzer)
+	analyzers = append(analyzers, ExitCheckAnalyzer)
 
 	multichecker.Main(analyzers...)
 }

@@ -14,7 +14,17 @@ import (
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 )
 
+var (
+	buildVersion = "N/A"
+	buildDate    = "N/A"
+	buildCommit  = "N/A"
+)
+
 func main() {
+	build.Version = buildVersion
+	build.Date = buildDate
+	build.Commit = buildCommit
+
 	build.PrintBuildInfo()
 
 	serverAddr := flag.String("a", "localhost:8080", "адрес эндпоинта HTTP-сервера")

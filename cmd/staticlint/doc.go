@@ -14,10 +14,12 @@
 //  3. Анализаторы ST из staticcheck.io (stylecheck)
 //     ST-анализаторы проверяют соответствие кода рекомендациям по стилю Go.
 //
-//  4. Собственный анализатор noexit
-//     Запрещает прямой вызов os.Exit в функции main пакета main.
-//     Это заставляет разработчиков использовать возврат ошибок вместо
-//     аварийного завершения программы.
+//  4. Собственный анализатор exitcheck
+//     Запрещает использование аварийного завершения программы вне функции main.main:
+//     - os.Exit (разрешен только в main.main)
+//     - panic (запрещен везде)
+//     - log.Fatal, log.Panic (запрещены везде)
+//     - logger.Fatal (zap) (запрещен везде)
 //
 // Использование:
 //
@@ -32,15 +34,8 @@
 //
 //	# Фильтрация по имени анализатора
 //	./staticlint -include=SA ./...
-//	./staticlint -include=noexit ./...
+//	./staticlint -include=exitcheck ./...
 //
 //	# Проверка конкретного пакета
 //	./staticlint ./internal/handlers/...
-//
-// Для добавления в CI/CD:
-//
-//   - name: Run static analysis
-//     run: |
-//     go build -o staticlint ./cmd/staticlint/
-//     ./staticlint ./...
 package main

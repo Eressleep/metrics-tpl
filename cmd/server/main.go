@@ -11,9 +11,20 @@ import (
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
 	"github.com/Eressleep/metrics-tpl/internal/server"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
+	"github.com/Eressleep/metrics-tpl/internal/utils"
+)
+
+var (
+	buildVersion = "N/A"
+	buildDate    = "N/A"
+	buildCommit  = "N/A"
 )
 
 func main() {
+	build.Version = buildVersion
+	build.Date = buildDate
+	build.Commit = buildCommit
+
 	build.PrintBuildInfo()
 
 	addr := flag.String("a", "localhost:8080", "server address")
@@ -43,7 +54,9 @@ func main() {
 	var dbConnectionError error
 
 	if dsn != "" {
-		log.Printf("Attempting to connect to database with DSN: %s", dsn)
+		safeDSN := utils.MaskDSN(dsn)
+		log.Printf("Attempting to connect to database with DSN: %s", safeDSN)
+
 		store, err = storage.NewDBStorage(dsn, nil)
 		if err != nil {
 			dbConnectionError = err
