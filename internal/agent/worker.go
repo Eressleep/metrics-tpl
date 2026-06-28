@@ -5,6 +5,7 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/model"
 )
@@ -23,6 +24,7 @@ type WorkerPool struct {
 	wg         sync.WaitGroup
 	stopChan   chan struct{}
 	stopped    atomic.Bool
+	mu         sync.Mutex
 }
 
 func NewWorkerPool(workers int, serverAddr, hashKey string, publicKey *rsa.PublicKey) *WorkerPool {
@@ -68,13 +70,31 @@ func (p *WorkerPool) Start() {
 }
 
 func (p *WorkerPool) Stop() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if !p.stopped.CompareAndSwap(false, true) {
 		return
 	}
 
+	log.Println("Stopping worker pool...")
+
 	close(p.stopChan)
+
 	close(p.jobs)
-	p.wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("All workers finished gracefully")
+	case <-time.After(10 * time.Second):
+		log.Println("Workers timeout, forcing stop")
+	}
 
 	log.Println("Worker pool stopped")
 }
@@ -115,7 +135,17 @@ func (p *WorkerPool) worker(id int) {
 }
 
 func (p *WorkerPool) processJob(id int, job Job) {
-	if err := p.client.SendMetric(job.Metric); err != nil {
-		log.Printf("Worker %d failed to send metric %s: %v", id, job.Metric.ID, err)
+	done := make(chan error, 1)
+	go func() {
+		done <- p.client.SendMetric(job.Metric)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			log.Printf("Worker %d failed to send metric %s: %v", id, job.Metric.ID, err)
+		}
+	case <-time.After(5 * time.Second):
+		log.Printf("Worker %d timeout sending metric %s", id, job.Metric.ID)
 	}
 }

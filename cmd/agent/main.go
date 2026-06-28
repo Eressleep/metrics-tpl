@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -126,13 +127,30 @@ func main() {
 	agt := agent.New(config)
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	go func() {
 		agt.Run()
 	}()
 
-	<-sigChan
-	log.Println("Получен сигнал завершения, останавливаем агента...")
-	agt.Stop()
+	sig := <-sigChan
+	log.Printf("Received signal: %v", sig)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		agt.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("Agent stopped gracefully")
+	case <-ctx.Done():
+		log.Println("Graceful shutdown timeout, forcing exit")
+	}
+
+	log.Println("Agent exited")
 }

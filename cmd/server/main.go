@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/build"
@@ -163,6 +167,16 @@ func main() {
 
 	srv := server.New(config, metricsHandler)
 
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	errChan := make(chan error, 1)
+	go func() {
+		if err := srv.Run(); err != nil && err != http.ErrServerClosed {
+			errChan <- err
+		}
+	}()
+
 	fmt.Printf("Starting server on %s\n", config.Addr)
 	fmt.Printf("Using database: %v\n", usingDB)
 	if finalHashKey != "" {
@@ -181,7 +195,24 @@ func main() {
 	fmt.Printf("Store file: %s\n", finalStoreFile)
 	fmt.Printf("Restore: %v\n", finalRestore)
 
-	if err := srv.Run(); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	select {
+	case sig := <-sigChan:
+		log.Printf("Received signal: %v", sig)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("Server shutdown error: %v", err)
+		} else {
+			log.Println("Server stopped gracefully")
+		}
+
+	case err := <-errChan:
+		if err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
+		}
 	}
+
+	log.Println("Server exited")
 }
