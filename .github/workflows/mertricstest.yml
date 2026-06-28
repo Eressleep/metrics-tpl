@@ -499,7 +499,8 @@ jobs:
           github.head_ref == 'iter21' ||
           github.head_ref == 'iter22' ||
           github.head_ref == 'iter23' ||
-          github.head_ref == 'iter24'
+          github.head_ref == 'iter24' ||
+          github.head_ref == 'iter25'
         run: |
           go run ./cmd/reset/
 
@@ -507,21 +508,29 @@ jobs:
         if: |
           github.head_ref == 'iter22' ||
           github.head_ref == 'iter23' ||
-          github.head_ref == 'iter24'
+          github.head_ref == 'iter24' ||
+          github.head_ref == 'iter25'
         run: |
           echo "iter22"
 
       - name: "Code increment #23"
         if: |
           github.head_ref == 'iter23' ||
-          github.head_ref == 'iter24'
+          github.head_ref == 'iter24' ||
+          github.head_ref == 'iter25'
         run: |
           echo "iter23"
       - name: "Code increment #24"
         if: |
-          github.head_ref == 'iter24'
+          github.head_ref == 'iter24' ||
+          github.head_ref == 'iter25'
         run: |
           echo "iter24"
+      - name: "Code increment #25"
+        if: |
+          github.head_ref == 'iter25'
+        run: |
+          echo "iter25"
       - name: "Race detection and coverage"
         if: |
           github.ref == 'refs/heads/main' ||
@@ -533,6 +542,7 @@ jobs:
           github.head_ref == 'iter19' ||
           github.head_ref == 'iter20' ||
           github.head_ref == 'iter21' ||
-          github.head_ref == 'iter24'
+          github.head_ref == 'iter24' ||
+          github.head_ref == 'iter25'
         run: |
           go test -v -race ./...
