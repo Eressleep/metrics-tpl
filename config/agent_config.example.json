@@ -1,0 +1,8 @@
+{
+  "address": "localhost:8080",
+  "report_interval": "10s",
+  "poll_interval": "2s",
+  "crypto_key": "/etc/metrics/public.pem",
+  "hash_key": "your-secret-key",
+  "rate_limit": 5
+}

@@ -1,0 +1,11 @@
+{
+  "address": "localhost:8080",
+  "restore": true,
+  "store_interval": "60s",
+  "store_file": "/var/lib/metrics/metrics-db.json",
+  "database_dsn": "postgres://user:password@localhost:5432/metrics?sslmode=disable",
+  "crypto_key": "/etc/metrics/private.pem",
+  "audit_file": "/var/log/metrics-audit.log",
+  "audit_url": "http://audit-server:8080/audit",
+  "hash_key": "your-secret-key"
+}

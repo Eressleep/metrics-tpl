@@ -4,9 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/build"
+	"github.com/Eressleep/metrics-tpl/internal/config"
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
 	"github.com/Eressleep/metrics-tpl/internal/server"
@@ -36,41 +38,87 @@ func main() {
 	restore := flag.Bool("r", true, "restore metrics from file on startup")
 	databaseDSN := flag.String("d", "", "database DSN")
 	cryptoKeyPath := flag.String("crypto-key", "", "path to private key file for decryption")
+	configFile := flag.String("c", "", "path to configuration file")
+	flag.StringVar(configFile, "config", "", "path to configuration file")
+
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Использование: %s [флаги]\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "Флаги:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(flag.CommandLine.Output(), "\nПеременные окружения:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  ADDRESS          адрес сервера\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  KEY              ключ для хеширования\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  AUDIT_FILE       путь к файлу аудита\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  AUDIT_URL        URL для отправки аудита\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  FILE_STORAGE_PATH путь к файлу хранилища\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  STORE_INTERVAL   интервал сохранения (секунды)\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  RESTORE          восстанавливать метрики при старте\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  DATABASE_DSN     DSN для подключения к БД\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  CRYPTO_KEY       путь к приватному ключу\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  CONFIG           путь к файлу конфигурации\n")
+	}
 
 	flag.Parse()
 
-	config := &server.Config{
-		Addr:          flags.GetConfigString(addr, "a", "ADDRESS", "localhost:8080"),
-		Mode:          "release",
-		AuditFile:     flags.GetConfigString(auditFile, "audit-file", "AUDIT_FILE", ""),
-		AuditURL:      flags.GetConfigString(auditURL, "audit-url", "AUDIT_URL", ""),
-		CryptoKeyPath: flags.GetConfigString(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", ""),
+	var fileConfig *config.ServerConfig
+	if *configFile != "" {
+		var err error
+		fileConfig, err = config.LoadServerConfig(*configFile)
+		if err != nil {
+			log.Printf("WARNING: Failed to load config file: %v", err)
+		} else if fileConfig != nil {
+			log.Printf("Loaded config from: %s", *configFile)
+		}
 	}
 
-	key := flags.GetConfigString(hashKey, "k", "KEY", "")
-	dsn := flags.GetConfigString(databaseDSN, "d", "DATABASE_DSN", "")
+	finalAddr := flags.GetConfigStringWithFile(addr, "a", "ADDRESS", fileConfig.Address, "localhost:8080")
+	finalHashKey := flags.GetConfigStringWithFile(hashKey, "k", "KEY", fileConfig.HashKey, "")
+	finalAuditFile := flags.GetConfigStringWithFile(auditFile, "audit-file", "AUDIT_FILE", fileConfig.AuditFile, "")
+	finalAuditURL := flags.GetConfigStringWithFile(auditURL, "audit-url", "AUDIT_URL", fileConfig.AuditURL, "")
+	finalStoreFile := flags.GetConfigStringWithFile(storeFile, "f", "FILE_STORAGE_PATH", fileConfig.StoreFile, "/tmp/metrics-db.json")
+	finalCryptoKey := flags.GetConfigStringWithFile(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", fileConfig.CryptoKey, "")
+	finalDatabaseDSN := flags.GetConfigStringWithFile(databaseDSN, "d", "DATABASE_DSN", fileConfig.DatabaseDSN, "")
+
+	var fileStoreInterval int
+	var fileRestore *bool
+	if fileConfig != nil {
+		if fileConfig.StoreInterval != "" {
+			if dur, err := time.ParseDuration(fileConfig.StoreInterval); err == nil {
+				fileStoreInterval = int(dur.Seconds())
+			}
+		}
+		fileRestore = fileConfig.Restore
+	}
+
+	finalStoreInterval := flags.GetConfigIntWithFile(storeInterval, "i", "STORE_INTERVAL", fileStoreInterval, 300)
+	finalRestore := flags.GetConfigBoolWithFile(restore, "r", "RESTORE", fileRestore, true)
+
+	config := &server.Config{
+		Addr:          finalAddr,
+		Mode:          "release",
+		AuditFile:     finalAuditFile,
+		AuditURL:      finalAuditURL,
+		CryptoKeyPath: finalCryptoKey,
+	}
 
 	var store storage.Storage
 	var err error
 	var usingDB bool
 	var dbConnectionError error
 
-	if dsn != "" {
-		safeDSN := utils.MaskDSN(dsn)
+	if finalDatabaseDSN != "" {
+		safeDSN := utils.MaskDSN(finalDatabaseDSN)
 		log.Printf("Attempting to connect to database with DSN: %s", safeDSN)
 
-		store, err = storage.NewDBStorage(dsn, nil)
+		store, err = storage.NewDBStorage(finalDatabaseDSN, nil)
 		if err != nil {
 			dbConnectionError = err
 			log.Printf("WARNING: Failed to initialize database storage: %v", err)
 			log.Printf("WARNING: Falling back to file/memory storage")
 
-			intervalSeconds := flags.GetConfigInt(storeInterval, "i", "STORE_INTERVAL", 300)
-			storeIntervalDuration := time.Duration(intervalSeconds) * time.Second
-			filePath := flags.GetConfigString(storeFile, "f", "FILE_STORAGE_PATH", "/tmp/metrics-db.json")
-			restoreValue := flags.GetConfigBool(restore, "r", "RESTORE", true)
+			storeIntervalDuration := time.Duration(finalStoreInterval) * time.Second
 
-			store, err = storage.NewFileStorage(filePath, storeIntervalDuration, restoreValue, nil)
+			store, err = storage.NewFileStorage(finalStoreFile, storeIntervalDuration, finalRestore, nil)
 			if err != nil {
 				log.Fatalf("Failed to initialize fallback storage: %v", err)
 			}
@@ -80,19 +128,16 @@ func main() {
 			log.Printf("Database storage initialized successfully")
 		}
 	} else {
-		intervalSeconds := flags.GetConfigInt(storeInterval, "i", "STORE_INTERVAL", 300)
-		storeIntervalDuration := time.Duration(intervalSeconds) * time.Second
-		filePath := flags.GetConfigString(storeFile, "f", "FILE_STORAGE_PATH", "/tmp/metrics-db.json")
-		restoreValue := flags.GetConfigBool(restore, "r", "RESTORE", true)
+		storeIntervalDuration := time.Duration(finalStoreInterval) * time.Second
 
-		store, err = storage.NewFileStorage(filePath, storeIntervalDuration, restoreValue, nil)
+		store, err = storage.NewFileStorage(finalStoreFile, storeIntervalDuration, finalRestore, nil)
 		if err != nil {
 			log.Fatalf("Failed to initialize storage: %v", err)
 		}
 		usingDB = false
 	}
 
-	metricsHandler := handlers.NewMetricsHandler(store, key)
+	metricsHandler := handlers.NewMetricsHandler(store, finalHashKey)
 	metricsHandler.SetUsingDB(usingDB)
 
 	if dbConnectionError != nil {
@@ -103,8 +148,8 @@ func main() {
 
 	fmt.Printf("Starting server on %s\n", config.Addr)
 	fmt.Printf("Using database: %v\n", usingDB)
-	if key != "" {
-		fmt.Printf("Hash key: %s\n", key)
+	if finalHashKey != "" {
+		fmt.Printf("Hash key: %s\n", finalHashKey)
 	}
 	if config.AuditFile != "" {
 		fmt.Printf("Audit log file: %s\n", config.AuditFile)
@@ -115,6 +160,9 @@ func main() {
 	if config.CryptoKeyPath != "" {
 		fmt.Printf("RSA encryption enabled with private key: %s\n", config.CryptoKeyPath)
 	}
+	fmt.Printf("Store interval: %d seconds\n", finalStoreInterval)
+	fmt.Printf("Store file: %s\n", finalStoreFile)
+	fmt.Printf("Restore: %v\n", finalRestore)
 
 	if err := srv.Run(); err != nil {
 		log.Fatalf("Server failed: %v", err)
