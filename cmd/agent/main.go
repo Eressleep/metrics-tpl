@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Eressleep/metrics-tpl/internal/agent"
 	"github.com/Eressleep/metrics-tpl/internal/build"
+	"github.com/Eressleep/metrics-tpl/internal/config"
 	"github.com/Eressleep/metrics-tpl/internal/flags"
 )
 
@@ -32,21 +34,22 @@ func main() {
 	pollInterval := flag.Int("p", 2, "частота опроса метрик из пакета runtime (в секундах)")
 	hashKey := flag.String("k", "", "ключ для вычисления HMAC-SHA256 хеша")
 	rateLimit := flag.Int("l", 1, "количество одновременно исходящих запросов")
+	cryptoKeyPath := flag.String("crypto-key", "", "путь до файла с публичным ключом для шифрования")
+	configFile := flag.String("c", "", "путь к файлу конфигурации")
+	flag.StringVar(configFile, "config", "", "путь к файлу конфигурации")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Использование: %s [флаги]\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Флаги:\n")
-		fmt.Fprintf(os.Stderr, "  -a=<ЗНАЧЕНИЕ>   адрес эндпоинта HTTP-сервера (по умолчанию localhost:8080)\n")
-		fmt.Fprintf(os.Stderr, "  -r=<ЗНАЧЕНИЕ>   частота отправки метрик на сервер в секундах (по умолчанию 10)\n")
-		fmt.Fprintf(os.Stderr, "  -p=<ЗНАЧЕНИЕ>   частота опроса метрик в секундах (по умолчанию 2)\n")
-		fmt.Fprintf(os.Stderr, "  -k=<ЗНАЧЕНИЕ>   ключ для вычисления HMAC-SHA256 хеша\n")
-		fmt.Fprintf(os.Stderr, "  -l=<ЗНАЧЕНИЕ>   количество одновременно исходящих запросов (по умолчанию 1)\n")
-		fmt.Fprintf(os.Stderr, "\nПеременные окружения:\n")
-		fmt.Fprintf(os.Stderr, "  ADDRESS          адрес эндпоинта HTTP-сервера\n")
-		fmt.Fprintf(os.Stderr, "  REPORT_INTERVAL  частота отправки метрик (секунды)\n")
-		fmt.Fprintf(os.Stderr, "  POLL_INTERVAL    частота опроса метрик (секунды)\n")
-		fmt.Fprintf(os.Stderr, "  KEY              ключ для вычисления HMAC-SHA256 хеша\n")
-		fmt.Fprintf(os.Stderr, "  RATE_LIMIT       количество одновременно исходящих запросов\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Использование: %s [флаги]\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "Флаги:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(flag.CommandLine.Output(), "\nПеременные окружения:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  ADDRESS          адрес эндпоинта HTTP-сервера\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  REPORT_INTERVAL  частота отправки метрик (секунды)\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  POLL_INTERVAL    частота опроса метрик (секунды)\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  KEY              ключ для хеширования\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  RATE_LIMIT       количество одновременно исходящих запросов\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  CRYPTO_KEY       путь до файла с публичным ключом\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  CONFIG           путь к файлу конфигурации\n")
 	}
 
 	flag.Parse()
@@ -56,11 +59,50 @@ func main() {
 		log.Fatalf("неизвестные аргументы: %v", args)
 	}
 
-	finalServerAddr := flags.GetConfigString(serverAddr, "a", "ADDRESS", "localhost:8080")
-	finalReportInterval := flags.GetConfigInt(reportInterval, "r", "REPORT_INTERVAL", 10)
-	finalPollInterval := flags.GetConfigInt(pollInterval, "p", "POLL_INTERVAL", 2)
-	finalHashKey := flags.GetConfigString(hashKey, "k", "KEY", "")
-	finalRateLimit := flags.GetConfigInt(rateLimit, "l", "RATE_LIMIT", 1)
+	var fileConfig *config.AgentConfig
+	if *configFile != "" {
+		var err error
+		fileConfig, err = config.LoadAgentConfig(*configFile)
+		if err != nil {
+			log.Printf("WARNING: Failed to load config file: %v", err)
+		} else if fileConfig != nil {
+			log.Printf("Loaded config from: %s", *configFile)
+		}
+	}
+
+	var (
+		fileAddress        string
+		fileHashKey        string
+		fileCryptoKey      string
+		fileReportInterval int
+		filePollInterval   int
+		fileRateLimit      int
+	)
+
+	if fileConfig != nil {
+		fileAddress = fileConfig.Address
+		fileHashKey = fileConfig.HashKey
+		fileCryptoKey = fileConfig.CryptoKey
+
+		if fileConfig.ReportInterval != "" {
+			if dur, err := time.ParseDuration(fileConfig.ReportInterval); err == nil {
+				fileReportInterval = int(dur.Seconds())
+			}
+		}
+		if fileConfig.PollInterval != "" {
+			if dur, err := time.ParseDuration(fileConfig.PollInterval); err == nil {
+				filePollInterval = int(dur.Seconds())
+			}
+		}
+		fileRateLimit = fileConfig.RateLimit
+	}
+
+	finalServerAddr := flags.GetConfigStringWithFile(serverAddr, "a", "ADDRESS", fileAddress, "localhost:8080")
+	finalHashKey := flags.GetConfigStringWithFile(hashKey, "k", "KEY", fileHashKey, "")
+	finalCryptoKey := flags.GetConfigStringWithFile(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", fileCryptoKey, "")
+	finalReportInterval := flags.GetConfigIntWithFile(reportInterval, "r", "REPORT_INTERVAL", fileReportInterval, 10)
+	finalPollInterval := flags.GetConfigIntWithFile(pollInterval, "p", "POLL_INTERVAL", filePollInterval, 2)
+	finalRateLimit := flags.GetConfigIntWithFile(rateLimit, "l", "RATE_LIMIT", fileRateLimit, 1)
 
 	config := &agent.Config{
 		ServerAddr:     finalServerAddr,
@@ -68,6 +110,7 @@ func main() {
 		ReportInterval: time.Duration(finalReportInterval) * time.Second,
 		HashKey:        finalHashKey,
 		RateLimit:      finalRateLimit,
+		CryptoKeyPath:  finalCryptoKey,
 	}
 
 	log.Printf("Запуск агента с интервалом опроса: %v, интервалом отправки: %v",
@@ -77,17 +120,37 @@ func main() {
 	if config.HashKey != "" {
 		log.Printf("Используется HMAC-SHA256 подпись с ключом")
 	}
+	if config.CryptoKeyPath != "" {
+		log.Printf("Используется RSA шифрование с ключом: %s", config.CryptoKeyPath)
+	}
 
 	agt := agent.New(config)
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	go func() {
 		agt.Run()
 	}()
 
-	<-sigChan
-	log.Println("Получен сигнал завершения, останавливаем агента...")
-	agt.Stop()
+	sig := <-sigChan
+	log.Printf("Received signal: %v", sig)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		agt.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("Agent stopped gracefully")
+	case <-ctx.Done():
+		log.Println("Graceful shutdown timeout, forcing exit")
+	}
+
+	log.Println("Agent exited")
 }

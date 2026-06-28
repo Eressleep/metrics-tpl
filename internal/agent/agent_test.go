@@ -96,6 +96,7 @@ func TestAgentNew(t *testing.T) {
 		ServerAddr:     "test:8080",
 		PollInterval:   1 * time.Second,
 		ReportInterval: 2 * time.Second,
+		CryptoKeyPath:  "",
 	}
 
 	agt := New(config)
@@ -116,7 +117,7 @@ func TestAgentDefaultConfig(t *testing.T) {
 }
 
 func TestWorkerPoolStop(t *testing.T) {
-	pool := NewWorkerPool(2, "localhost:8080", "")
+	pool := NewWorkerPool(2, "localhost:8080", "", nil)
 	pool.Start()
 
 	if pool.GetServerAddr() != "localhost:8080" {
@@ -127,32 +128,13 @@ func TestWorkerPoolStop(t *testing.T) {
 }
 
 func TestWorkerPoolDoubleStop(t *testing.T) {
-	pool := NewWorkerPool(2, "localhost:8080", "")
+	pool := NewWorkerPool(2, "localhost:8080", "", nil)
 	pool.Start()
 
 	pool.Stop()
 	pool.Stop()
 
 	t.Log("Double Stop completed without panic")
-}
-
-func TestWorkerPoolSubmitAfterStop(t *testing.T) {
-	pool := NewWorkerPool(2, "localhost:8080", "")
-	pool.Start()
-	pool.Stop()
-
-	value := 123.45
-	metric := struct {
-		ID    string
-		MType string
-		Value *float64
-	}{
-		ID:    "test",
-		MType: "gauge",
-		Value: &value,
-	}
-
-	_ = metric
 }
 
 func TestCollectorStartStop(t *testing.T) {

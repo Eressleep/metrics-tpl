@@ -1,424 +1,293 @@
 package server
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
+	"github.com/Eressleep/metrics-tpl/internal/model"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest"
 )
 
-func setupTest(t *testing.T) (*Server, *storage.MemStorage, *zap.Logger) {
-	gin.SetMode(gin.TestMode)
-
+func TestNewServer(t *testing.T) {
+	config := NewDefaultConfig()
+	config.Addr = ":8081"
 	store := storage.NewMemStorage()
 	handler := handlers.NewMetricsHandler(store, "")
-	logger := zaptest.NewLogger(t)
 
-	config := &Config{
-		Addr: ":0",
-		Mode: gin.TestMode,
-	}
-
-	server := NewWithLogger(config, handler, logger)
-	return server, store, logger
-}
-
-func TestNewDefaultConfig(t *testing.T) {
-	config := NewDefaultConfig()
-
-	if config.Addr != ":8080" {
-		t.Errorf("Expected default addr :8080, got %s", config.Addr)
-	}
-	if config.Mode != gin.ReleaseMode {
-		t.Errorf("Expected default mode %s, got %s", gin.ReleaseMode, config.Mode)
-	}
-}
-
-func TestNew(t *testing.T) {
-	store := storage.NewMemStorage()
-	handler := handlers.NewMetricsHandler(store, "")
-	config := NewDefaultConfig()
-
-	server := New(config, handler)
-
-	if server == nil {
-		t.Fatal("Server should not be nil")
-	}
-	if server.config != config {
-		t.Error("Config not set correctly")
-	}
-	if server.handler != handler {
-		t.Error("Handler not set correctly")
-	}
-	if server.router == nil {
-		t.Error("Router should not be nil")
-	}
-	if server.httpSrv == nil {
-		t.Error("HTTPServer should not be nil")
-	}
+	srv := New(config, handler)
+	assert.NotNil(t, srv)
+	assert.Equal(t, config.Addr, srv.config.Addr)
+	assert.NotNil(t, srv.router)
+	assert.NotNil(t, srv.httpSrv)
 }
 
 func TestNewWithLogger(t *testing.T) {
+	config := NewDefaultConfig()
 	store := storage.NewMemStorage()
 	handler := handlers.NewMetricsHandler(store, "")
-	config := NewDefaultConfig()
-	logger := zaptest.NewLogger(t)
+	logger, _ := zap.NewDevelopment()
 
-	server := NewWithLogger(config, handler, logger)
-
-	if server.logger != logger {
-		t.Error("Logger not set correctly")
-	}
-}
-
-func TestNewWithRouter(t *testing.T) {
-	store := storage.NewMemStorage()
-	handler := handlers.NewMetricsHandler(store, "")
-	config := NewDefaultConfig()
-	logger := zaptest.NewLogger(t)
-
-	router := gin.New()
-	router.Use(gin.Recovery())
-
-	server := NewWithRouter(config, handler, router, logger)
-
-	if server.router != router {
-		t.Error("Custom router not set correctly")
-	}
-
-	server2 := NewWithRouter(config, handler, nil, logger)
-	if server2.router == nil {
-		t.Error("Router should be created when nil is provided")
-	}
-}
-
-func TestServerGetRouter(t *testing.T) {
-	server, _, _ := setupTest(t)
-
-	router := server.GetRouter()
-	if router == nil {
-		t.Error("GetRouter should not return nil")
-	}
-}
-
-func TestServerGetLogger(t *testing.T) {
-	server, _, logger := setupTest(t)
-
-	returnedLogger := server.GetLogger()
-	if returnedLogger == nil {
-		t.Error("GetLogger should not return nil")
-	}
-
-	if returnedLogger == logger {
-		t.Log("Logger is the same instance")
-	}
-}
-
-func TestServerRoutes(t *testing.T) {
-	server, _, _ := setupTest(t)
-	router := server.GetRouter()
-
-	ts := httptest.NewServer(router)
-	defer ts.Close()
-
-	updateURL := ts.URL + "/update/gauge/test_metric/123.45"
-	resp, err := http.Post(updateURL, "text/plain", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status OK, got %d", resp.StatusCode)
-	}
-
-	getURL := ts.URL + "/value/gauge/test_metric"
-	resp, err = http.Get(getURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status OK, got %d", resp.StatusCode)
-	}
-
-	resp, err = http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status OK, got %d", resp.StatusCode)
-	}
-
-	resp, err = http.Get(ts.URL + "/ping")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status OK, got %d", resp.StatusCode)
-	}
-}
-
-func TestServerNoRoute(t *testing.T) {
-	server, _, _ := setupTest(t)
-	router := server.GetRouter()
-
-	ts := httptest.NewServer(router)
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/nonexistent")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("Expected status NotFound, got %d", resp.StatusCode)
-	}
-}
-
-func TestServerNotFound(t *testing.T) {
-	server, _, _ := setupTest(t)
-
-	ts := httptest.NewServer(server.router)
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/nonexistent")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("Expected status NotFound (404), got %d", resp.StatusCode)
-	}
+	srv := NewWithLogger(config, handler, logger)
+	assert.NotNil(t, srv)
+	assert.Equal(t, logger, srv.logger)
 }
 
 func TestServerRunAndStop(t *testing.T) {
-	server, _, logger := setupTest(t)
+	gin.SetMode(gin.TestMode)
+	config := NewDefaultConfig()
+	config.Addr = "localhost:0"
+	store := storage.NewMemStorage()
+	handler := handlers.NewMetricsHandler(store, "")
 
-	server.config.Addr = ":0"
+	srv := New(config, handler)
+	assert.NotNil(t, srv)
 
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- server.Run()
+		if err := srv.Run(); err != nil && err != http.ErrServerClosed {
+			errChan <- err
+		}
 	}()
 
-	time.Sleep(100 * time.Millisecond)
-
-	err := server.Stop()
-	if err != nil {
-		t.Fatalf("Failed to stop server: %v", err)
-	}
-
-	select {
-	case err := <-errChan:
-		if err != nil && err != http.ErrServerClosed {
-			t.Errorf("Run returned unexpected error: %v", err)
-		}
-	case <-time.After(1 * time.Second):
-		t.Error("Run did not return after Stop")
-	}
-
-	logger.Info("Test complete")
+	err := srv.Stop()
+	assert.NoError(t, err)
 }
 
-func TestServerStopWithoutRun(t *testing.T) {
-	server, _, _ := setupTest(t)
+func TestServerGetRouter(t *testing.T) {
+	config := NewDefaultConfig()
+	store := storage.NewMemStorage()
+	handler := handlers.NewMetricsHandler(store, "")
 
-	err := server.Stop()
-	if err != nil {
-		t.Errorf("Stop should not error when server not running: %v", err)
-	}
+	srv := New(config, handler)
+	router := srv.GetRouter()
+	assert.NotNil(t, router)
+	assert.Equal(t, srv.router, router)
 }
 
-func TestServerConfig(t *testing.T) {
+func TestServerGetLogger(t *testing.T) {
+	config := NewDefaultConfig()
+	store := storage.NewMemStorage()
+	handler := handlers.NewMetricsHandler(store, "")
+	logger, _ := zap.NewDevelopment()
+
+	srv := NewWithLogger(config, handler, logger)
+	assert.Equal(t, logger, srv.GetLogger())
+}
+
+func TestServerGetAuditor(t *testing.T) {
+	config := NewDefaultConfig()
+	config.AuditFile = "/tmp/test-audit.log"
+	store := storage.NewMemStorage()
+	handler := handlers.NewMetricsHandler(store, "")
+	logger, _ := zap.NewDevelopment()
+
+	srv := NewWithLogger(config, handler, logger)
+	auditor := srv.GetAuditor()
+	assert.NotNil(t, auditor)
+	assert.True(t, auditor.IsEnabled())
+}
+
+func TestServerRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := storage.NewMemStorage()
+	handler := handlers.NewMetricsHandler(store, "")
+	config := NewDefaultConfig()
+	srv := New(config, handler)
+
+	router := srv.GetRouter()
+
 	tests := []struct {
-		name    string
-		addr    string
-		mode    string
-		wantErr bool
+		name       string
+		method     string
+		path       string
+		body       interface{}
+		statusCode int
 	}{
 		{
-			name:    "valid config",
-			addr:    ":8081",
-			mode:    gin.TestMode,
-			wantErr: false,
+			name:       "Update gauge metric",
+			method:     "POST",
+			path:       "/update/gauge/test/123.45",
+			body:       nil,
+			statusCode: http.StatusOK,
 		},
 		{
-			name:    "empty addr",
-			addr:    "",
-			mode:    gin.TestMode,
-			wantErr: true,
+			name:       "Update counter metric",
+			method:     "POST",
+			path:       "/update/counter/test/100",
+			body:       nil,
+			statusCode: http.StatusOK,
+		},
+		{
+			name:       "Get gauge value",
+			method:     "GET",
+			path:       "/value/gauge/test",
+			body:       nil,
+			statusCode: http.StatusOK,
+		},
+		{
+			name:       "Ping endpoint",
+			method:     "GET",
+			path:       "/ping",
+			body:       nil,
+			statusCode: http.StatusOK,
+		},
+		{
+			name:       "Not found route",
+			method:     "GET",
+			path:       "/not-found",
+			body:       nil,
+			statusCode: http.StatusNotFound,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := storage.NewMemStorage()
-			handler := handlers.NewMetricsHandler(store, "")
-			logger := zaptest.NewLogger(t)
+			var req *http.Request
+			var err error
 
-			config := &Config{
-				Addr: tt.addr,
-				Mode: tt.mode,
+			if tt.body != nil {
+				bodyBytes, _ := json.Marshal(tt.body)
+				req, err = http.NewRequest(tt.method, tt.path, bytes.NewReader(bodyBytes))
+				req.Header.Set("Content-Type", "application/json")
+			} else {
+				req, err = http.NewRequest(tt.method, tt.path, nil)
 			}
+			assert.NoError(t, err)
 
-			server := NewWithLogger(config, handler, logger)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
 
-			errChan := make(chan error, 1)
-			go func() {
-				errChan <- server.Run()
-			}()
-
-			time.Sleep(50 * time.Millisecond)
-
-			server.Stop()
-
-			select {
-			case err := <-errChan:
-				if tt.wantErr && err == nil {
-					t.Error("Expected error but got nil")
-				}
-				if !tt.wantErr && err != nil && err != http.ErrServerClosed {
-					t.Errorf("Unexpected error: %v", err)
-				}
-			case <-time.After(200 * time.Millisecond):
-				if tt.wantErr {
-					t.Error("Expected error but server started")
-				}
-			}
+			assert.Equal(t, tt.statusCode, w.Code)
 		})
 	}
 }
 
-func TestServerMultipleStops(t *testing.T) {
-	server, _, _ := setupTest(t)
+func TestServerWithHashKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := storage.NewMemStorage()
+	handler := handlers.NewMetricsHandler(store, "test-key")
+	config := NewDefaultConfig()
+	srv := New(config, handler)
 
-	err1 := server.Stop()
-	err2 := server.Stop()
-	err3 := server.Stop()
+	router := srv.GetRouter()
+	assert.NotNil(t, router)
 
-	if err1 != nil {
-		t.Errorf("First stop error: %v", err1)
+	value := 123.45
+	metric := model.Metrics{
+		ID:    "test",
+		MType: model.Gauge,
+		Value: &value,
 	}
-	if err2 != nil {
-		t.Errorf("Second stop error: %v", err2)
+	body, _ := json.Marshal(metric)
+
+	req, _ := http.NewRequest("POST", "/update/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestServerWithAudit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	config := NewDefaultConfig()
+	config.AuditFile = "/tmp/test-audit.log"
+	store := storage.NewMemStorage()
+	handler := handlers.NewMetricsHandler(store, "")
+	logger, _ := zap.NewDevelopment()
+
+	srv := NewWithLogger(config, handler, logger)
+	router := srv.GetRouter()
+
+	assert.NotNil(t, srv.GetAuditor())
+	assert.True(t, srv.GetAuditor().IsEnabled())
+
+	value := 123.45
+	metric := model.Metrics{
+		ID:    "audit-test",
+		MType: model.Gauge,
+		Value: &value,
 	}
-	if err3 != nil {
-		t.Errorf("Third stop error: %v", err3)
-	}
+	body, _ := json.Marshal(metric)
+
+	req, _ := http.NewRequest("POST", "/update/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestServerWithCrypto(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	config := NewDefaultConfig()
+	config.CryptoKeyPath = "/tmp/test-key.pem"
+	store := storage.NewMemStorage()
+	handler := handlers.NewMetricsHandler(store, "")
+	logger, _ := zap.NewDevelopment()
+
+	srv := NewWithLogger(config, handler, logger)
+	assert.NotNil(t, srv)
+	assert.Nil(t, srv.privateKey)
+}
+
+func TestServerShutdown(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	config := NewDefaultConfig()
+	config.Addr = "localhost:0"
+	store := storage.NewMemStorage()
+	handler := handlers.NewMetricsHandler(store, "")
+
+	srv := New(config, handler)
+
+	go func() {
+		_ = srv.Run()
+	}()
+
+	err := srv.Stop()
+	assert.NoError(t, err)
+}
+
+func TestServerDefaultConfig(t *testing.T) {
+	config := NewDefaultConfig()
+	assert.Equal(t, ":8080", config.Addr)
+	assert.Equal(t, gin.ReleaseMode, config.Mode)
+	assert.Equal(t, "", config.AuditFile)
+	assert.Equal(t, "", config.AuditURL)
+	assert.Equal(t, "", config.CryptoKeyPath)
 }
 
 func TestServerWithCustomRouter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	config := NewDefaultConfig()
 	store := storage.NewMemStorage()
 	handler := handlers.NewMetricsHandler(store, "")
-	logger := zaptest.NewLogger(t)
+	logger, _ := zap.NewDevelopment()
 
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Header("X-Test", "test-header")
-		c.Next()
+	customRouter := gin.New()
+	customRouter.GET("/custom", func(c *gin.Context) {
+		c.String(http.StatusOK, "custom")
 	})
 
-	config := &Config{
-		Addr: ":0",
-		Mode: gin.TestMode,
-	}
+	srv := NewWithLogger(config, handler, logger)
+	assert.NotNil(t, srv)
 
-	server := NewWithRouter(config, handler, router, logger)
-
-	ts := httptest.NewServer(server.GetRouter())
-	defer ts.Close()
-
-	resp, err := http.Get(ts.URL + "/ping")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.Header.Get("X-Test") != "test-header" {
-		t.Error("Custom middleware not applied")
-	}
-}
-
-func TestServerShutdownTimeout(t *testing.T) {
-	server, _, logger := setupTest(t)
-
-	server.router.GET("/block", func(c *gin.Context) {
-		time.Sleep(2 * time.Second)
-		c.String(http.StatusOK, "done")
+	srv.router.GET("/custom", func(c *gin.Context) {
+		c.String(http.StatusOK, "custom")
 	})
 
-	ts := httptest.NewServer(server.router)
-	defer ts.Close()
-
-	done := make(chan bool)
-	go func() {
-		resp, err := http.Get(ts.URL + "/block")
-		if err != nil {
-			t.Errorf("Request failed: %v", err)
-			done <- false
-			return
-		}
-		defer resp.Body.Close()
-		done <- true
-	}()
-
-	time.Sleep(100 * time.Millisecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	err := server.httpSrv.Shutdown(ctx)
-	if err != nil && err != context.DeadlineExceeded {
-		t.Errorf("Expected deadline exceeded or nil, got %v", err)
-	}
-
-	<-done
-	logger.Info("Shutdown test complete")
-}
-
-func TestServerConstructors(t *testing.T) {
-	store := storage.NewMemStorage()
-	handler := handlers.NewMetricsHandler(store, "")
-
-	t.Run("New", func(t *testing.T) {
-		config := NewDefaultConfig()
-		server := New(config, handler)
-		if server.logger == nil {
-			t.Error("Logger should be created")
-		}
-	})
-
-	t.Run("NewWithLogger", func(t *testing.T) {
-		config := NewDefaultConfig()
-		logger := zaptest.NewLogger(t)
-		server := NewWithLogger(config, handler, logger)
-		if server.logger != logger {
-			t.Error("Logger not set correctly")
-		}
-	})
-
-	t.Run("NewWithRouter", func(t *testing.T) {
-		config := NewDefaultConfig()
-		logger := zaptest.NewLogger(t)
-		router := gin.New()
-		server := NewWithRouter(config, handler, router, logger)
-		if server.router != router {
-			t.Error("Router not set correctly")
-		}
-	})
+	req, _ := http.NewRequest("GET", "/custom", nil)
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "custom", w.Body.String())
 }

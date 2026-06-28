@@ -1,8 +1,12 @@
 package agent
 
 import (
+	"crypto/rsa"
 	"log"
+	"sync"
 	"time"
+
+	"github.com/Eressleep/metrics-tpl/internal/crypto"
 )
 
 // generate:reset
@@ -12,6 +16,7 @@ type Config struct {
 	ReportInterval time.Duration
 	HashKey        string
 	RateLimit      int
+	CryptoKeyPath  string
 }
 
 func DefaultConfig() *Config {
@@ -21,6 +26,7 @@ func DefaultConfig() *Config {
 		ReportInterval: 10 * time.Second,
 		HashKey:        "",
 		RateLimit:      1,
+		CryptoKeyPath:  "",
 	}
 }
 
@@ -29,11 +35,26 @@ type Agent struct {
 	collector *Collector
 	pool      *WorkerPool
 	stopChan  chan struct{}
+	wg        sync.WaitGroup
+	mu        sync.Mutex
+	stopped   bool
 }
 
 func New(config *Config) *Agent {
 	collector := NewCollector(config.PollInterval)
-	pool := NewWorkerPool(config.RateLimit, config.ServerAddr, config.HashKey)
+
+	var publicKey *rsa.PublicKey
+	if config.CryptoKeyPath != "" {
+		var err error
+		publicKey, err = crypto.LoadPublicKey(config.CryptoKeyPath)
+		if err != nil {
+			log.Printf("WARNING: Failed to load public key: %v", err)
+		} else {
+			log.Printf("Loaded public key from: %s", config.CryptoKeyPath)
+		}
+	}
+
+	pool := NewWorkerPool(config.RateLimit, config.ServerAddr, config.HashKey, publicKey)
 
 	return &Agent{
 		config:    config,
@@ -47,15 +68,18 @@ func (a *Agent) Run() {
 	a.collector.Start()
 	a.pool.Start()
 
+	a.wg.Add(1)
 	go a.reportLoop()
 
 	<-a.stopChan
-	log.Println("Программная остановка агента...")
+	log.Println("Received shutdown signal, starting graceful shutdown...")
 
-	a.cleanup()
+	a.gracefulStop()
 }
 
 func (a *Agent) reportLoop() {
+	defer a.wg.Done()
+
 	ticker := time.NewTicker(a.config.ReportInterval)
 	defer ticker.Stop()
 
@@ -64,6 +88,8 @@ func (a *Agent) reportLoop() {
 	for {
 		select {
 		case <-a.stopChan:
+			log.Println("Report loop received stop signal, sending final metrics...")
+			a.sendMetrics()
 			return
 		case <-ticker.C:
 			a.sendMetrics()
@@ -75,13 +101,57 @@ func (a *Agent) sendMetrics() {
 	m := a.collector.GetMetrics()
 	metrics := m.ToMetricsSlice()
 
+	if len(metrics) == 0 {
+		return
+	}
+
 	log.Printf("Sending %d metrics to worker pool", len(metrics))
 
-	for _, metric := range metrics {
-		if !a.pool.Submit(metric) {
-			log.Printf("Failed to submit metric %s (pool stopped or queue full)", metric.ID)
+	timeout := time.After(5 * time.Second)
+	done := make(chan bool, 1)
+
+	go func() {
+		for _, metric := range metrics {
+			if !a.pool.Submit(metric) {
+				log.Printf("Failed to submit metric %s (pool stopped or queue full)", metric.ID)
+			}
 		}
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		log.Printf("All %d metrics submitted successfully", len(metrics))
+	case <-timeout:
+		log.Printf("Timeout submitting metrics, some may be lost")
 	}
+}
+
+func (a *Agent) gracefulStop() {
+	a.mu.Lock()
+	if a.stopped {
+		a.mu.Unlock()
+		return
+	}
+	a.stopped = true
+	a.mu.Unlock()
+
+	log.Println("Starting graceful shutdown...")
+
+	a.collector.Stop()
+	log.Println("Collector stopped")
+
+	log.Println("Sending final metrics before shutdown...")
+	a.sendMetrics()
+
+	log.Println("Waiting for all workers to finish...")
+	a.pool.Stop()
+	log.Println("All workers finished")
+
+	a.wg.Wait()
+	log.Println("Report loop finished")
+
+	log.Println("Agent stopped gracefully")
 }
 
 func (a *Agent) Stop() {
@@ -93,12 +163,16 @@ func (a *Agent) Stop() {
 		close(a.stopChan)
 	}
 
-	a.cleanup()
+	done := make(chan struct{})
+	go func() {
+		a.gracefulStop()
+		close(done)
+	}()
 
-	log.Println("Agent stopped")
-}
-
-func (a *Agent) cleanup() {
-	a.collector.Stop()
-	a.pool.Stop()
+	select {
+	case <-done:
+		log.Println("Agent stopped gracefully")
+	case <-time.After(10 * time.Second):
+		log.Println("Graceful shutdown timeout, forcing stop")
+	}
 }

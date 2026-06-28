@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"crypto/rsa"
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/model"
 )
@@ -18,21 +20,24 @@ type WorkerPool struct {
 	client     *MetricsClient
 	serverAddr string
 	hashKey    string
+	publicKey  *rsa.PublicKey
 	wg         sync.WaitGroup
 	stopChan   chan struct{}
 	stopped    atomic.Bool
+	mu         sync.Mutex
 }
 
-func NewWorkerPool(workers int, serverAddr, hashKey string) *WorkerPool {
+func NewWorkerPool(workers int, serverAddr, hashKey string, publicKey *rsa.PublicKey) *WorkerPool {
 	if workers < 1 {
 		workers = 1
 	}
 	return &WorkerPool{
 		workers:    workers,
 		jobs:       make(chan Job, workers*100),
-		client:     NewMetricsClient(serverAddr, hashKey),
+		client:     NewMetricsClient(serverAddr, hashKey, publicKey),
 		serverAddr: serverAddr,
 		hashKey:    hashKey,
+		publicKey:  publicKey,
 		stopChan:   make(chan struct{}),
 	}
 }
@@ -59,16 +64,37 @@ func (p *WorkerPool) Start() {
 		go p.worker(i)
 	}
 	log.Printf("Worker pool started with %d workers", p.workers)
+	if p.publicKey != nil {
+		log.Printf("Using RSA encryption for metrics")
+	}
 }
 
 func (p *WorkerPool) Stop() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if !p.stopped.CompareAndSwap(false, true) {
 		return
 	}
 
+	log.Println("Stopping worker pool...")
+
 	close(p.stopChan)
+
 	close(p.jobs)
-	p.wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("All workers finished gracefully")
+	case <-time.After(10 * time.Second):
+		log.Println("Workers timeout, forcing stop")
+	}
 
 	log.Println("Worker pool stopped")
 }
@@ -109,7 +135,17 @@ func (p *WorkerPool) worker(id int) {
 }
 
 func (p *WorkerPool) processJob(id int, job Job) {
-	if err := p.client.SendMetric(job.Metric); err != nil {
-		log.Printf("Worker %d failed to send metric %s: %v", id, job.Metric.ID, err)
+	done := make(chan error, 1)
+	go func() {
+		done <- p.client.SendMetric(job.Metric)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			log.Printf("Worker %d failed to send metric %s: %v", id, job.Metric.ID, err)
+		}
+	case <-time.After(5 * time.Second):
+		log.Printf("Worker %d timeout sending metric %s", id, job.Metric.ID)
 	}
 }
