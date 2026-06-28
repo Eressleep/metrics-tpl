@@ -11,7 +11,7 @@ import (
 )
 
 func TestWorkerPool_New(t *testing.T) {
-	pool := NewWorkerPool(1, "localhost:8080", "")
+	pool := NewWorkerPool(1, "localhost:8080", "", nil)
 	if pool == nil {
 		t.Fatal("expected non-nil pool")
 	}
@@ -21,7 +21,7 @@ func TestWorkerPool_New(t *testing.T) {
 }
 
 func TestWorkerPool_StartStop(t *testing.T) {
-	pool := NewWorkerPool(2, "localhost:8080", "")
+	pool := NewWorkerPool(2, "localhost:8080", "", nil)
 	pool.Start()
 
 	time.Sleep(10 * time.Millisecond)
@@ -39,7 +39,7 @@ func TestWorkerPool_Submit(t *testing.T) {
 
 	addr := server.Listener.Addr().String()
 
-	pool := NewWorkerPool(1, addr, "")
+	pool := NewWorkerPool(1, addr, "", nil)
 	pool.Start()
 
 	metric := model.Metrics{
@@ -61,7 +61,7 @@ func TestWorkerPool_Submit(t *testing.T) {
 }
 
 func TestWorkerPool_SubmitToClosedPool(t *testing.T) {
-	pool := NewWorkerPool(1, "localhost:9999", "")
+	pool := NewWorkerPool(1, "localhost:9999", "", nil)
 	pool.Start()
 	pool.Stop()
 
@@ -76,33 +76,33 @@ func TestWorkerPool_SubmitToClosedPool(t *testing.T) {
 }
 
 func TestWorkerPool_GetWorkersCount(t *testing.T) {
-	pool := NewWorkerPool(3, "localhost:8080", "")
+	pool := NewWorkerPool(3, "localhost:8080", "", nil)
 	if pool.GetWorkersCount() != 3 {
 		t.Errorf("expected 3 workers, got %d", pool.GetWorkersCount())
 	}
 }
 
 func TestWorkerPool_GetServerAddr(t *testing.T) {
-	pool := NewWorkerPool(1, "example.com:9090", "")
+	pool := NewWorkerPool(1, "example.com:9090", "", nil)
 	if pool.GetServerAddr() != "example.com:9090" {
 		t.Errorf("expected 'example.com:9090', got '%s'", pool.GetServerAddr())
 	}
 }
 
 func TestWorkerPool_GetHashKey(t *testing.T) {
-	pool := NewWorkerPool(1, "localhost:8080", "secret")
+	pool := NewWorkerPool(1, "localhost:8080", "secret", nil)
 	if pool.GetHashKey() != "secret" {
 		t.Errorf("expected 'secret', got '%s'", pool.GetHashKey())
 	}
 }
 
 func TestWorkerPool_DefaultWorkers(t *testing.T) {
-	pool := NewWorkerPool(0, "localhost:8080", "")
+	pool := NewWorkerPool(0, "localhost:8080", "", nil)
 	if pool.GetWorkersCount() != 1 {
 		t.Errorf("expected 1 worker for invalid input, got %d", pool.GetWorkersCount())
 	}
 
-	pool = NewWorkerPool(-1, "localhost:8080", "")
+	pool = NewWorkerPool(-1, "localhost:8080", "", nil)
 	if pool.GetWorkersCount() != 1 {
 		t.Errorf("expected 1 worker for negative input, got %d", pool.GetWorkersCount())
 	}

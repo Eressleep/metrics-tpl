@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Eressleep/metrics-tpl/internal/crypto"
 	"github.com/Eressleep/metrics-tpl/internal/model"
 	"github.com/Eressleep/metrics-tpl/pkg/hash"
 )
@@ -17,13 +19,15 @@ import (
 type MetricsClient struct {
 	serverAddr string
 	hashKey    string
+	publicKey  *rsa.PublicKey
 	httpClient *http.Client
 }
 
-func NewMetricsClient(serverAddr, hashKey string) *MetricsClient {
+func NewMetricsClient(serverAddr, hashKey string, publicKey *rsa.PublicKey) *MetricsClient {
 	return &MetricsClient{
 		serverAddr: serverAddr,
 		hashKey:    hashKey,
+		publicKey:  publicKey,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -58,7 +62,18 @@ func (c *MetricsClient) send(url string, data interface{}, withHash bool) error 
 		return fmt.Errorf("marshal error: %w", err)
 	}
 
-	compressedData, err := compressData(jsonData)
+	var finalData []byte
+	if c.publicKey != nil {
+		encryptedData, err := crypto.EncryptRSA(jsonData, c.publicKey)
+		if err != nil {
+			return fmt.Errorf("encryption error: %w", err)
+		}
+		finalData = encryptedData
+	} else {
+		finalData = jsonData
+	}
+
+	compressedData, err := compressData(finalData)
 	if err != nil {
 		return fmt.Errorf("compress error: %w", err)
 	}
@@ -71,6 +86,10 @@ func (c *MetricsClient) send(url string, data interface{}, withHash bool) error 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
+
+	if c.publicKey != nil {
+		req.Header.Set("X-Encrypted", "true")
+	}
 
 	if withHash && c.hashKey != "" {
 		req.Header.Set("HashSHA256", hash.ComputeHMAC(compressedData, c.hashKey))

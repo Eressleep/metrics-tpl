@@ -32,6 +32,7 @@ func main() {
 	pollInterval := flag.Int("p", 2, "частота опроса метрик из пакета runtime (в секундах)")
 	hashKey := flag.String("k", "", "ключ для вычисления HMAC-SHA256 хеша")
 	rateLimit := flag.Int("l", 1, "количество одновременно исходящих запросов")
+	cryptoKeyPath := flag.String("crypto-key", "", "путь до файла с публичным ключом для шифрования")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Использование: %s [флаги]\n", os.Args[0])
@@ -41,12 +42,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -p=<ЗНАЧЕНИЕ>   частота опроса метрик в секундах (по умолчанию 2)\n")
 		fmt.Fprintf(os.Stderr, "  -k=<ЗНАЧЕНИЕ>   ключ для вычисления HMAC-SHA256 хеша\n")
 		fmt.Fprintf(os.Stderr, "  -l=<ЗНАЧЕНИЕ>   количество одновременно исходящих запросов (по умолчанию 1)\n")
+		fmt.Fprintf(os.Stderr, "  -crypto-key=<ЗНАЧЕНИЕ>   путь до файла с публичным ключом для шифрования\n")
 		fmt.Fprintf(os.Stderr, "\nПеременные окружения:\n")
 		fmt.Fprintf(os.Stderr, "  ADDRESS          адрес эндпоинта HTTP-сервера\n")
 		fmt.Fprintf(os.Stderr, "  REPORT_INTERVAL  частота отправки метрик (секунды)\n")
 		fmt.Fprintf(os.Stderr, "  POLL_INTERVAL    частота опроса метрик (секунды)\n")
 		fmt.Fprintf(os.Stderr, "  KEY              ключ для вычисления HMAC-SHA256 хеша\n")
 		fmt.Fprintf(os.Stderr, "  RATE_LIMIT       количество одновременно исходящих запросов\n")
+		fmt.Fprintf(os.Stderr, "  CRYPTO_KEY       путь до файла с публичным ключом для шифрования\n")
 	}
 
 	flag.Parse()
@@ -61,6 +64,7 @@ func main() {
 	finalPollInterval := flags.GetConfigInt(pollInterval, "p", "POLL_INTERVAL", 2)
 	finalHashKey := flags.GetConfigString(hashKey, "k", "KEY", "")
 	finalRateLimit := flags.GetConfigInt(rateLimit, "l", "RATE_LIMIT", 1)
+	finalCryptoKeyPath := flags.GetConfigString(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", "")
 
 	config := &agent.Config{
 		ServerAddr:     finalServerAddr,
@@ -68,6 +72,7 @@ func main() {
 		ReportInterval: time.Duration(finalReportInterval) * time.Second,
 		HashKey:        finalHashKey,
 		RateLimit:      finalRateLimit,
+		CryptoKeyPath:  finalCryptoKeyPath,
 	}
 
 	log.Printf("Запуск агента с интервалом опроса: %v, интервалом отправки: %v",
@@ -76,6 +81,9 @@ func main() {
 	log.Printf("Rate limit: %d", config.RateLimit)
 	if config.HashKey != "" {
 		log.Printf("Используется HMAC-SHA256 подпись с ключом")
+	}
+	if config.CryptoKeyPath != "" {
+		log.Printf("Используется RSA шифрование с ключом: %s", config.CryptoKeyPath)
 	}
 
 	agt := agent.New(config)

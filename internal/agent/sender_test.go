@@ -3,6 +3,8 @@ package agent
 import (
 	"sync"
 	"sync/atomic"
+	"testing"
+	"time"
 )
 
 type MockCollector struct {
@@ -33,4 +35,21 @@ func (m *MockCollector) SetPollCount(count int64) {
 
 func (m *MockCollector) GetGetMetricsCallCount() int32 {
 	return atomic.LoadInt32(&m.getMetricsCallCount)
+}
+
+func TestNewSenderWithPublicKey(t *testing.T) {
+	collector := NewCollector(time.Second)
+
+	sender := NewSender("localhost:8080", time.Second, collector, "", nil)
+	if sender == nil {
+		t.Fatal("Sender should not be nil")
+	}
+	if sender.client.publicKey != nil {
+		t.Error("Public key should be nil when not provided")
+	}
+
+	sender = NewSender("localhost:8080", time.Second, collector, "", nil)
+	if sender.client.publicKey != nil {
+		t.Error("Public key should be nil when key path is empty")
+	}
 }
