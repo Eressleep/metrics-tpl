@@ -69,12 +69,20 @@ func main() {
 		}
 	}
 
-	finalServerAddr := flags.GetConfigStringWithFile(serverAddr, "a", "ADDRESS", fileConfig.Address, "localhost:8080")
-	finalHashKey := flags.GetConfigStringWithFile(hashKey, "k", "KEY", fileConfig.HashKey, "")
-	finalCryptoKey := flags.GetConfigStringWithFile(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", fileConfig.CryptoKey, "")
+	var (
+		fileAddress        string
+		fileHashKey        string
+		fileCryptoKey      string
+		fileReportInterval int
+		filePollInterval   int
+		fileRateLimit      int
+	)
 
-	var fileReportInterval, filePollInterval, fileRateLimit int
 	if fileConfig != nil {
+		fileAddress = fileConfig.Address
+		fileHashKey = fileConfig.HashKey
+		fileCryptoKey = fileConfig.CryptoKey
+
 		if fileConfig.ReportInterval != "" {
 			if dur, err := time.ParseDuration(fileConfig.ReportInterval); err == nil {
 				fileReportInterval = int(dur.Seconds())
@@ -88,6 +96,9 @@ func main() {
 		fileRateLimit = fileConfig.RateLimit
 	}
 
+	finalServerAddr := flags.GetConfigStringWithFile(serverAddr, "a", "ADDRESS", fileAddress, "localhost:8080")
+	finalHashKey := flags.GetConfigStringWithFile(hashKey, "k", "KEY", fileHashKey, "")
+	finalCryptoKey := flags.GetConfigStringWithFile(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", fileCryptoKey, "")
 	finalReportInterval := flags.GetConfigIntWithFile(reportInterval, "r", "REPORT_INTERVAL", fileReportInterval, 10)
 	finalPollInterval := flags.GetConfigIntWithFile(pollInterval, "p", "POLL_INTERVAL", filePollInterval, 2)
 	finalRateLimit := flags.GetConfigIntWithFile(rateLimit, "l", "RATE_LIMIT", fileRateLimit, 1)

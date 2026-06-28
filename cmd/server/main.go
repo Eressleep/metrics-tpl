@@ -71,25 +71,42 @@ func main() {
 		}
 	}
 
-	finalAddr := flags.GetConfigStringWithFile(addr, "a", "ADDRESS", fileConfig.Address, "localhost:8080")
-	finalHashKey := flags.GetConfigStringWithFile(hashKey, "k", "KEY", fileConfig.HashKey, "")
-	finalAuditFile := flags.GetConfigStringWithFile(auditFile, "audit-file", "AUDIT_FILE", fileConfig.AuditFile, "")
-	finalAuditURL := flags.GetConfigStringWithFile(auditURL, "audit-url", "AUDIT_URL", fileConfig.AuditURL, "")
-	finalStoreFile := flags.GetConfigStringWithFile(storeFile, "f", "FILE_STORAGE_PATH", fileConfig.StoreFile, "/tmp/metrics-db.json")
-	finalCryptoKey := flags.GetConfigStringWithFile(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", fileConfig.CryptoKey, "")
-	finalDatabaseDSN := flags.GetConfigStringWithFile(databaseDSN, "d", "DATABASE_DSN", fileConfig.DatabaseDSN, "")
+	var (
+		fileAddress       string
+		fileHashKey       string
+		fileAuditFile     string
+		fileAuditURL      string
+		fileStoreFile     string
+		fileCryptoKey     string
+		fileDatabaseDSN   string
+		fileStoreInterval int
+		fileRestore       *bool
+	)
 
-	var fileStoreInterval int
-	var fileRestore *bool
 	if fileConfig != nil {
+		fileAddress = fileConfig.Address
+		fileHashKey = fileConfig.HashKey
+		fileAuditFile = fileConfig.AuditFile
+		fileAuditURL = fileConfig.AuditURL
+		fileStoreFile = fileConfig.StoreFile
+		fileCryptoKey = fileConfig.CryptoKey
+		fileDatabaseDSN = fileConfig.DatabaseDSN
+		fileRestore = fileConfig.Restore
+
 		if fileConfig.StoreInterval != "" {
 			if dur, err := time.ParseDuration(fileConfig.StoreInterval); err == nil {
 				fileStoreInterval = int(dur.Seconds())
 			}
 		}
-		fileRestore = fileConfig.Restore
 	}
 
+	finalAddr := flags.GetConfigStringWithFile(addr, "a", "ADDRESS", fileAddress, "localhost:8080")
+	finalHashKey := flags.GetConfigStringWithFile(hashKey, "k", "KEY", fileHashKey, "")
+	finalAuditFile := flags.GetConfigStringWithFile(auditFile, "audit-file", "AUDIT_FILE", fileAuditFile, "")
+	finalAuditURL := flags.GetConfigStringWithFile(auditURL, "audit-url", "AUDIT_URL", fileAuditURL, "")
+	finalStoreFile := flags.GetConfigStringWithFile(storeFile, "f", "FILE_STORAGE_PATH", fileStoreFile, "/tmp/metrics-db.json")
+	finalCryptoKey := flags.GetConfigStringWithFile(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", fileCryptoKey, "")
+	finalDatabaseDSN := flags.GetConfigStringWithFile(databaseDSN, "d", "DATABASE_DSN", fileDatabaseDSN, "")
 	finalStoreInterval := flags.GetConfigIntWithFile(storeInterval, "i", "STORE_INTERVAL", fileStoreInterval, 300)
 	finalRestore := flags.GetConfigBoolWithFile(restore, "r", "RESTORE", fileRestore, true)
 
