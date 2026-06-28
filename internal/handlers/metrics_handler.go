@@ -34,6 +34,11 @@ func NewMetricsHandler(store storage.Storage, hashKey string) *MetricsHandler {
 	}
 }
 
+// GetStorage возвращает хранилище
+func (h *MetricsHandler) GetStorage() storage.Storage {
+	return h.storage
+}
+
 func (h *MetricsHandler) SetUsingDB(usingDB bool) {
 	h.usingDB = usingDB
 }
@@ -116,7 +121,11 @@ func (h *MetricsHandler) UpdateJSON(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		updatedValue, _ := h.storage.GetGauge(metric.ID)
+		updatedValue, err := h.storage.GetGauge(metric.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, model.Metrics{
 			ID:    metric.ID,
 			MType: model.Gauge,
@@ -132,7 +141,11 @@ func (h *MetricsHandler) UpdateJSON(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		updatedValue, _ := h.storage.GetCounter(metric.ID)
+		updatedValue, err := h.storage.GetCounter(metric.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, model.Metrics{
 			ID:    metric.ID,
 			MType: model.Counter,
