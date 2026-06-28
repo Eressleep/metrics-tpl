@@ -35,14 +35,16 @@ func main() {
 	storeInterval := flag.Int("i", 300, "store interval in seconds")
 	restore := flag.Bool("r", true, "restore metrics from file on startup")
 	databaseDSN := flag.String("d", "", "database DSN")
+	cryptoKeyPath := flag.String("crypto-key", "", "path to private key file for decryption")
 
 	flag.Parse()
 
 	config := &server.Config{
-		Addr:      flags.GetConfigString(addr, "a", "ADDRESS", "localhost:8080"),
-		Mode:      "release",
-		AuditFile: flags.GetConfigString(auditFile, "audit-file", "AUDIT_FILE", ""),
-		AuditURL:  flags.GetConfigString(auditURL, "audit-url", "AUDIT_URL", ""),
+		Addr:          flags.GetConfigString(addr, "a", "ADDRESS", "localhost:8080"),
+		Mode:          "release",
+		AuditFile:     flags.GetConfigString(auditFile, "audit-file", "AUDIT_FILE", ""),
+		AuditURL:      flags.GetConfigString(auditURL, "audit-url", "AUDIT_URL", ""),
+		CryptoKeyPath: flags.GetConfigString(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", ""),
 	}
 
 	key := flags.GetConfigString(hashKey, "k", "KEY", "")
@@ -109,6 +111,9 @@ func main() {
 	}
 	if config.AuditURL != "" {
 		fmt.Printf("Audit URL: %s\n", config.AuditURL)
+	}
+	if config.CryptoKeyPath != "" {
+		fmt.Printf("RSA encryption enabled with private key: %s\n", config.CryptoKeyPath)
 	}
 
 	if err := srv.Run(); err != nil {

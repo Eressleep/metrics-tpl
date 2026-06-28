@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"crypto/rsa"
 	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"time"
 
 	"github.com/Eressleep/metrics-tpl/internal/audit"
+	"github.com/Eressleep/metrics-tpl/internal/crypto"
 	"github.com/Eressleep/metrics-tpl/internal/handlers"
 	"github.com/Eressleep/metrics-tpl/internal/middleware"
 	"github.com/gin-gonic/gin"
@@ -15,28 +17,31 @@ import (
 )
 
 type Config struct {
-	Addr      string
-	Mode      string
-	AuditFile string
-	AuditURL  string
+	Addr          string
+	Mode          string
+	AuditFile     string
+	AuditURL      string
+	CryptoKeyPath string
 }
 
 func NewDefaultConfig() *Config {
 	return &Config{
-		Addr:      ":8080",
-		Mode:      gin.ReleaseMode,
-		AuditFile: "",
-		AuditURL:  "",
+		Addr:          ":8080",
+		Mode:          gin.ReleaseMode,
+		AuditFile:     "",
+		AuditURL:      "",
+		CryptoKeyPath: "",
 	}
 }
 
 type Server struct {
-	config  *Config
-	router  *gin.Engine
-	handler *handlers.MetricsHandler
-	httpSrv *http.Server
-	logger  *zap.Logger
-	auditor *audit.Auditor
+	config     *Config
+	router     *gin.Engine
+	handler    *handlers.MetricsHandler
+	httpSrv    *http.Server
+	logger     *zap.Logger
+	auditor    *audit.Auditor
+	privateKey *rsa.PrivateKey
 }
 
 func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
@@ -47,6 +52,20 @@ func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
 func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logger *zap.Logger) *Server {
 	gin.SetMode(config.Mode)
 
+	var privateKey *rsa.PrivateKey
+	if config.CryptoKeyPath != "" {
+		var err error
+		privateKey, err = crypto.LoadPrivateKey(config.CryptoKeyPath)
+		if err != nil {
+			logger.Error("Failed to load private key",
+				zap.String("path", config.CryptoKeyPath),
+				zap.Error(err))
+		} else {
+			logger.Info("Loaded private key for decryption",
+				zap.String("path", config.CryptoKeyPath))
+		}
+	}
+
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
 
@@ -55,6 +74,7 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 
 	router.Use(gin.Logger(), gin.Recovery())
 
+	router.Use(middleware.DecryptMiddleware(privateKey, logger))
 	router.Use(middleware.GzipMiddleware())
 
 	if metricsHandler.GetHashKey() != "" {
@@ -105,12 +125,13 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	}
 
 	return &Server{
-		config:  config,
-		router:  router,
-		handler: metricsHandler,
-		httpSrv: httpSrv,
-		logger:  logger,
-		auditor: auditor,
+		config:     config,
+		router:     router,
+		handler:    metricsHandler,
+		httpSrv:    httpSrv,
+		logger:     logger,
+		auditor:    auditor,
+		privateKey: privateKey,
 	}
 }
 
@@ -121,10 +142,26 @@ func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, rout
 		return NewWithLogger(config, metricsHandler, logger)
 	}
 
-	router.HandleMethodNotAllowed = true
+	var privateKey *rsa.PrivateKey
+	if config.CryptoKeyPath != "" {
+		var err error
+		privateKey, err = crypto.LoadPrivateKey(config.CryptoKeyPath)
+		if err != nil {
+			logger.Error("Failed to load private key",
+				zap.String("path", config.CryptoKeyPath),
+				zap.Error(err))
+		} else {
+			logger.Info("Loaded private key for decryption",
+				zap.String("path", config.CryptoKeyPath))
+		}
+	}
 
+	router.HandleMethodNotAllowed = true
 	router.RedirectTrailingSlash = false
 	router.RedirectFixedPath = false
+
+	router.Use(middleware.DecryptMiddleware(privateKey, logger))
+	router.Use(middleware.GzipMiddleware())
 
 	if metricsHandler.GetHashKey() != "" {
 		router.Use(middleware.HashCheckMiddleware(metricsHandler.GetHashKey(), logger))
@@ -157,12 +194,13 @@ func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, rout
 	}
 
 	return &Server{
-		config:  config,
-		router:  router,
-		handler: metricsHandler,
-		httpSrv: httpSrv,
-		logger:  logger,
-		auditor: auditor,
+		config:     config,
+		router:     router,
+		handler:    metricsHandler,
+		httpSrv:    httpSrv,
+		logger:     logger,
+		auditor:    auditor,
+		privateKey: privateKey,
 	}
 }
 
@@ -179,6 +217,10 @@ func (s *Server) Run() error {
 	fmt.Println("  GET    /                             - View all metrics")
 	fmt.Println("  GET    /ping                         - Health check")
 	fmt.Println("  GET    /ping-db                      - Database health check")
+
+	if s.privateKey != nil {
+		fmt.Println("  Encryption: enabled (RSA)")
+	}
 
 	return s.httpSrv.ListenAndServe()
 }

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"crypto/rsa"
 	"log"
 	"strings"
 	"time"
@@ -19,12 +20,12 @@ type Sender struct {
 	retryConfig    *retry.Config
 }
 
-func NewSender(serverAddr string, reportInterval time.Duration, collector *Collector, hashKey string) *Sender {
+func NewSender(serverAddr string, reportInterval time.Duration, collector *Collector, hashKey string, publicKey *rsa.PublicKey) *Sender {
 	return &Sender{
 		serverAddr:     serverAddr,
 		reportInterval: reportInterval,
 		collector:      collector,
-		client:         NewMetricsClient(serverAddr, hashKey),
+		client:         NewMetricsClient(serverAddr, hashKey, publicKey),
 		stopChan:       make(chan struct{}),
 		retryConfig:    retry.DefaultConfig(),
 	}
@@ -91,8 +92,8 @@ func (s *Sender) sendAllMetrics() {
 func (s *Sender) sendIndividualMetrics(m *metrics.Metrics) {
 	log.Printf("Sending metrics individually")
 
-	metrics := m.ToMetricsSlice()
-	for _, metric := range metrics {
+	metricsSlice := m.ToMetricsSlice()
+	for _, metric := range metricsSlice {
 		if metric.MType == model.Counter && metric.ID == "PollCount" {
 			continue
 		}

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"crypto/rsa"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -18,21 +19,23 @@ type WorkerPool struct {
 	client     *MetricsClient
 	serverAddr string
 	hashKey    string
+	publicKey  *rsa.PublicKey
 	wg         sync.WaitGroup
 	stopChan   chan struct{}
 	stopped    atomic.Bool
 }
 
-func NewWorkerPool(workers int, serverAddr, hashKey string) *WorkerPool {
+func NewWorkerPool(workers int, serverAddr, hashKey string, publicKey *rsa.PublicKey) *WorkerPool {
 	if workers < 1 {
 		workers = 1
 	}
 	return &WorkerPool{
 		workers:    workers,
 		jobs:       make(chan Job, workers*100),
-		client:     NewMetricsClient(serverAddr, hashKey),
+		client:     NewMetricsClient(serverAddr, hashKey, publicKey),
 		serverAddr: serverAddr,
 		hashKey:    hashKey,
+		publicKey:  publicKey,
 		stopChan:   make(chan struct{}),
 	}
 }
@@ -59,6 +62,9 @@ func (p *WorkerPool) Start() {
 		go p.worker(i)
 	}
 	log.Printf("Worker pool started with %d workers", p.workers)
+	if p.publicKey != nil {
+		log.Printf("Using RSA encryption for metrics")
+	}
 }
 
 func (p *WorkerPool) Stop() {

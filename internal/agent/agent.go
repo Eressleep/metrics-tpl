@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"crypto/rsa"
 	"log"
 	"time"
+
+	"github.com/Eressleep/metrics-tpl/internal/crypto"
 )
 
 // generate:reset
@@ -12,6 +15,7 @@ type Config struct {
 	ReportInterval time.Duration
 	HashKey        string
 	RateLimit      int
+	CryptoKeyPath  string
 }
 
 func DefaultConfig() *Config {
@@ -21,6 +25,7 @@ func DefaultConfig() *Config {
 		ReportInterval: 10 * time.Second,
 		HashKey:        "",
 		RateLimit:      1,
+		CryptoKeyPath:  "",
 	}
 }
 
@@ -33,7 +38,19 @@ type Agent struct {
 
 func New(config *Config) *Agent {
 	collector := NewCollector(config.PollInterval)
-	pool := NewWorkerPool(config.RateLimit, config.ServerAddr, config.HashKey)
+
+	var publicKey *rsa.PublicKey
+	if config.CryptoKeyPath != "" {
+		var err error
+		publicKey, err = crypto.LoadPublicKey(config.CryptoKeyPath)
+		if err != nil {
+			log.Printf("WARNING: Failed to load public key: %v", err)
+		} else {
+			log.Printf("Loaded public key from: %s", config.CryptoKeyPath)
+		}
+	}
+
+	pool := NewWorkerPool(config.RateLimit, config.ServerAddr, config.HashKey, publicKey)
 
 	return &Agent{
 		config:    config,
