@@ -27,6 +27,7 @@ var (
 )
 
 func main() {
+	// Передаем значения в пакет build
 	build.Version = buildVersion
 	build.Date = buildDate
 	build.Commit = buildCommit
@@ -42,6 +43,7 @@ func main() {
 	restore := flag.Bool("r", true, "restore metrics from file on startup")
 	databaseDSN := flag.String("d", "", "database DSN")
 	cryptoKeyPath := flag.String("crypto-key", "", "path to private key file for decryption")
+	trustedSubnet := flag.String("t", "", "trusted subnet CIDR (e.g., 192.168.0.0/24)")
 	configFile := flag.String("c", "", "path to configuration file")
 	flag.StringVar(configFile, "config", "", "path to configuration file")
 
@@ -59,6 +61,7 @@ func main() {
 		fmt.Fprintf(flag.CommandLine.Output(), "  RESTORE          восстанавливать метрики при старте\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  DATABASE_DSN     DSN для подключения к БД\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  CRYPTO_KEY       путь к приватному ключу\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  TRUSTED_SUBNET   доверенная подсеть (CIDR)\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  CONFIG           путь к файлу конфигурации\n")
 	}
 
@@ -83,6 +86,7 @@ func main() {
 		fileStoreFile     string
 		fileCryptoKey     string
 		fileDatabaseDSN   string
+		fileTrustedSubnet string
 		fileStoreInterval int
 		fileRestore       *bool
 	)
@@ -95,6 +99,7 @@ func main() {
 		fileStoreFile = fileConfig.StoreFile
 		fileCryptoKey = fileConfig.CryptoKey
 		fileDatabaseDSN = fileConfig.DatabaseDSN
+		fileTrustedSubnet = fileConfig.TrustedSubnet
 		fileRestore = fileConfig.Restore
 
 		if fileConfig.StoreInterval != "" {
@@ -111,6 +116,7 @@ func main() {
 	finalStoreFile := flags.GetConfigStringWithFile(storeFile, "f", "FILE_STORAGE_PATH", fileStoreFile, "/tmp/metrics-db.json")
 	finalCryptoKey := flags.GetConfigStringWithFile(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", fileCryptoKey, "")
 	finalDatabaseDSN := flags.GetConfigStringWithFile(databaseDSN, "d", "DATABASE_DSN", fileDatabaseDSN, "")
+	finalTrustedSubnet := flags.GetConfigStringWithFile(trustedSubnet, "t", "TRUSTED_SUBNET", fileTrustedSubnet, "")
 	finalStoreInterval := flags.GetConfigIntWithFile(storeInterval, "i", "STORE_INTERVAL", fileStoreInterval, 300)
 	finalRestore := flags.GetConfigBoolWithFile(restore, "r", "RESTORE", fileRestore, true)
 
@@ -120,6 +126,7 @@ func main() {
 		AuditFile:     finalAuditFile,
 		AuditURL:      finalAuditURL,
 		CryptoKeyPath: finalCryptoKey,
+		TrustedSubnet: finalTrustedSubnet,
 	}
 
 	var store storage.Storage
@@ -190,6 +197,9 @@ func main() {
 	}
 	if config.CryptoKeyPath != "" {
 		fmt.Printf("RSA encryption enabled with private key: %s\n", config.CryptoKeyPath)
+	}
+	if config.TrustedSubnet != "" {
+		fmt.Printf("Trusted subnet: %s\n", config.TrustedSubnet)
 	}
 	fmt.Printf("Store interval: %d seconds\n", finalStoreInterval)
 	fmt.Printf("Store file: %s\n", finalStoreFile)

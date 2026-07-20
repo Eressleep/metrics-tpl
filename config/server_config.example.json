@@ -7,5 +7,6 @@
   "crypto_key": "/etc/metrics/private.pem",
   "audit_file": "/var/log/metrics-audit.log",
   "audit_url": "http://audit-server:8080/audit",
-  "hash_key": "your-secret-key"
+  "hash_key": "your-secret-key",
+  "trusted_subnet": "192.168.0.0/24"
 }
