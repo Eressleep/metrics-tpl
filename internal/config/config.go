@@ -1,4 +1,3 @@
-// Package config предоставляет функции для загрузки конфигурации из JSON файла
 package config
 
 import (
@@ -19,6 +18,7 @@ type ServerConfig struct {
 	AuditFile     string `json:"audit_file"`
 	AuditURL      string `json:"audit_url"`
 	HashKey       string `json:"hash_key"`
+	TrustedSubnet string `json:"trusted_subnet"`
 }
 
 // AgentConfig представляет конфигурацию агента из JSON файла

@@ -24,6 +24,7 @@ type Config struct {
 	AuditFile     string
 	AuditURL      string
 	CryptoKeyPath string
+	TrustedSubnet string // Добавляем поле для доверенной подсети
 }
 
 func NewDefaultConfig() *Config {
@@ -33,6 +34,7 @@ func NewDefaultConfig() *Config {
 		AuditFile:     "",
 		AuditURL:      "",
 		CryptoKeyPath: "",
+		TrustedSubnet: "",
 	}
 }
 
@@ -78,6 +80,12 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	router.RedirectFixedPath = false
 
 	router.Use(gin.Logger(), gin.Recovery())
+
+	if config.TrustedSubnet != "" {
+		logger.Info("Trusted subnet enabled",
+			zap.String("subnet", config.TrustedSubnet))
+		router.Use(middleware.TrustedSubnetMiddleware(config.TrustedSubnet, logger))
+	}
 
 	router.Use(middleware.DecryptMiddleware(privateKey, logger))
 	router.Use(middleware.GzipMiddleware())
@@ -140,6 +148,82 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	}
 }
 
+// NewWithRouter создает новый сервер с кастомным роутером
+func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, router *gin.Engine, logger *zap.Logger) *Server {
+	gin.SetMode(config.Mode)
+
+	if router == nil {
+		return NewWithLogger(config, metricsHandler, logger)
+	}
+
+	var privateKey *rsa.PrivateKey
+	if config.CryptoKeyPath != "" {
+		var err error
+		privateKey, err = crypto.LoadPrivateKey(config.CryptoKeyPath)
+		if err != nil {
+			logger.Error("Failed to load private key",
+				zap.String("path", config.CryptoKeyPath),
+				zap.Error(err))
+		} else {
+			logger.Info("Loaded private key for decryption",
+				zap.String("path", config.CryptoKeyPath))
+		}
+	}
+
+	router.HandleMethodNotAllowed = true
+	router.RedirectTrailingSlash = false
+	router.RedirectFixedPath = false
+
+	if config.TrustedSubnet != "" {
+		logger.Info("Trusted subnet enabled",
+			zap.String("subnet", config.TrustedSubnet))
+		router.Use(middleware.TrustedSubnetMiddleware(config.TrustedSubnet, logger))
+	}
+
+	router.Use(middleware.DecryptMiddleware(privateKey, logger))
+	router.Use(middleware.GzipMiddleware())
+
+	if metricsHandler.GetHashKey() != "" {
+		router.Use(middleware.HashCheckMiddleware(metricsHandler.GetHashKey(), logger))
+		router.Use(middleware.HashResponseMiddleware(metricsHandler.GetHashKey(), logger))
+	}
+
+	auditor := audit.New(config.AuditFile, config.AuditURL, logger)
+	if auditor.IsEnabled() {
+		logger.Info("Audit logging enabled",
+			zap.String("file", config.AuditFile),
+			zap.String("url", config.AuditURL))
+		router.Use(middleware.AuditMiddleware(auditor, logger))
+	}
+
+	router.POST("/update/:type/:name/:value", metricsHandler.Update)
+	router.POST("/update/", metricsHandler.UpdateJSON)
+	router.POST("/update", metricsHandler.UpdateJSON)
+	router.POST("/updates/", metricsHandler.UpdateBatch)
+	router.POST("/updates", metricsHandler.UpdateBatch)
+	router.POST("/value/", metricsHandler.GetValueJSON)
+	router.POST("/value", metricsHandler.GetValueJSON)
+	router.GET("/value/:type/:name", metricsHandler.GetValue)
+	router.GET("/", metricsHandler.GetAllMetrics)
+	router.GET("/ping", metricsHandler.Ping)
+	router.GET("/ping-db", metricsHandler.PingDB)
+
+	httpSrv := &http.Server{
+		Addr:    config.Addr,
+		Handler: router,
+	}
+
+	return &Server{
+		config:     config,
+		router:     router,
+		handler:    metricsHandler,
+		httpSrv:    httpSrv,
+		logger:     logger,
+		auditor:    auditor,
+		privateKey: privateKey,
+	}
+}
+
 func (s *Server) Run() error {
 	s.logger.Info("Starting metrics server",
 		zap.String("address", s.config.Addr))
@@ -157,10 +241,14 @@ func (s *Server) Run() error {
 	if s.privateKey != nil {
 		fmt.Println("  Encryption: enabled (RSA)")
 	}
+	if s.config.TrustedSubnet != "" {
+		fmt.Printf("  Trusted subnet: %s\n", s.config.TrustedSubnet)
+	}
 
 	return s.httpSrv.ListenAndServe()
 }
 
+// Shutdown gracefully stops the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	if s.stopped {

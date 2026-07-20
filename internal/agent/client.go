@@ -13,6 +13,7 @@ import (
 
 	"github.com/Eressleep/metrics-tpl/internal/crypto"
 	"github.com/Eressleep/metrics-tpl/internal/model"
+	"github.com/Eressleep/metrics-tpl/internal/utils"
 	"github.com/Eressleep/metrics-tpl/pkg/hash"
 )
 
@@ -21,6 +22,7 @@ type MetricsClient struct {
 	hashKey    string
 	publicKey  *rsa.PublicKey
 	httpClient *http.Client
+	localIP    string // Кешируем локальный IP
 }
 
 func NewMetricsClient(serverAddr, hashKey string, publicKey *rsa.PublicKey) *MetricsClient {
@@ -35,6 +37,7 @@ func NewMetricsClient(serverAddr, hashKey string, publicKey *rsa.PublicKey) *Met
 				IdleConnTimeout: 90 * time.Second,
 			},
 		},
+		localIP: utils.GetOutboundIP(),
 	}
 }
 
@@ -87,6 +90,11 @@ func (c *MetricsClient) send(url string, data interface{}, withHash bool) error 
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
 
+	if c.localIP != "" {
+		req.Header.Set("X-Real-IP", c.localIP)
+	}
+
+	// Указываем, что данные зашифрованы
 	if c.publicKey != nil {
 		req.Header.Set("X-Encrypted", "true")
 	}
