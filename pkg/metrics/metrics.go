@@ -1,4 +1,3 @@
-// Package metrics предоставляет сборщик системных метрик.
 package metrics
 
 import (
@@ -8,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/Eressleep/metrics-tpl/internal/model"
+	"github.com/Eressleep/metrics-tpl/internal/proto"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 )
@@ -189,6 +189,32 @@ func (m *Metrics) ToMetricsSlice() []model.Metrics {
 		ID:    "PollCount",
 		MType: model.Counter,
 		Delta: &pollCount,
+	})
+
+	return result
+}
+
+// ToProtoMetrics конвертирует метрики в proto формат
+func (m *Metrics) ToProtoMetrics() []proto.Metric {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []proto.Metric
+
+	gauges := m.getAllGaugesUnsafe()
+
+	for name, val := range gauges {
+		result = append(result, proto.Metric{
+			Id:    name,
+			Type:  proto.Metric_GAUGE,
+			Value: val,
+		})
+	}
+
+	result = append(result, proto.Metric{
+		Id:    "PollCount",
+		Type:  proto.Metric_COUNTER,
+		Delta: m.PollCount,
 	})
 
 	return result

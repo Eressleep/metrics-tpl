@@ -24,7 +24,8 @@ type Config struct {
 	AuditFile     string
 	AuditURL      string
 	CryptoKeyPath string
-	TrustedSubnet string // Добавляем поле для доверенной подсети
+	TrustedSubnet string
+	GRPCAddress   string
 }
 
 func NewDefaultConfig() *Config {
@@ -35,6 +36,7 @@ func NewDefaultConfig() *Config {
 		AuditURL:      "",
 		CryptoKeyPath: "",
 		TrustedSubnet: "",
+		GRPCAddress:   "localhost:50051",
 	}
 }
 
@@ -288,6 +290,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// Stop is a legacy method for backward compatibility
 func (s *Server) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
