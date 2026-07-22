@@ -1,4 +1,3 @@
-// Package config предоставляет функции для загрузки конфигурации из JSON файла
 package config
 
 import (
@@ -19,6 +18,8 @@ type ServerConfig struct {
 	AuditFile     string `json:"audit_file"`
 	AuditURL      string `json:"audit_url"`
 	HashKey       string `json:"hash_key"`
+	TrustedSubnet string `json:"trusted_subnet"`
+	GRPCAddress   string `json:"grpc_address"`
 }
 
 // AgentConfig представляет конфигурацию агента из JSON файла
@@ -29,6 +30,8 @@ type AgentConfig struct {
 	CryptoKey      string `json:"crypto_key"`
 	HashKey        string `json:"hash_key"`
 	RateLimit      int    `json:"rate_limit"`
+	GRPCAddress    string `json:"grpc_address"`
+	UseGRPC        bool   `json:"use_grpc"`
 }
 
 // LoadServerConfig загружает конфигурацию сервера из JSON файла

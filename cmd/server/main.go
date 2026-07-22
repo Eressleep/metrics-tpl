@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/Eressleep/metrics-tpl/internal/utils"
 )
 
+// Прокси-переменные для передачи информации о сборке
 var (
 	buildVersion = "N/A"
 	buildDate    = "N/A"
@@ -27,13 +29,14 @@ var (
 )
 
 func main() {
+	// Передаем значения в пакет build
 	build.Version = buildVersion
 	build.Date = buildDate
 	build.Commit = buildCommit
 
 	build.PrintBuildInfo()
 
-	addr := flag.String("a", "localhost:8080", "server address")
+	addr := flag.String("a", "localhost:8080", "HTTP server address")
 	hashKey := flag.String("k", "", "hash key for signing")
 	auditFile := flag.String("audit-file", "", "path to audit log file")
 	auditURL := flag.String("audit-url", "", "URL to send audit logs")
@@ -42,6 +45,8 @@ func main() {
 	restore := flag.Bool("r", true, "restore metrics from file on startup")
 	databaseDSN := flag.String("d", "", "database DSN")
 	cryptoKeyPath := flag.String("crypto-key", "", "path to private key file for decryption")
+	trustedSubnet := flag.String("t", "", "trusted subnet CIDR (e.g., 192.168.0.0/24)")
+	grpcAddr := flag.String("grpc-addr", "localhost:50051", "gRPC server address")
 	configFile := flag.String("c", "", "path to configuration file")
 	flag.StringVar(configFile, "config", "", "path to configuration file")
 
@@ -50,7 +55,8 @@ func main() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Флаги:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "\nПеременные окружения:\n")
-		fmt.Fprintf(flag.CommandLine.Output(), "  ADDRESS          адрес сервера\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  ADDRESS          HTTP адрес сервера\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  GRPC_ADDRESS     gRPC адрес сервера\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  KEY              ключ для хеширования\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  AUDIT_FILE       путь к файлу аудита\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  AUDIT_URL        URL для отправки аудита\n")
@@ -59,6 +65,7 @@ func main() {
 		fmt.Fprintf(flag.CommandLine.Output(), "  RESTORE          восстанавливать метрики при старте\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  DATABASE_DSN     DSN для подключения к БД\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  CRYPTO_KEY       путь к приватному ключу\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  TRUSTED_SUBNET   доверенная подсеть (CIDR)\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  CONFIG           путь к файлу конфигурации\n")
 	}
 
@@ -83,6 +90,8 @@ func main() {
 		fileStoreFile     string
 		fileCryptoKey     string
 		fileDatabaseDSN   string
+		fileTrustedSubnet string
+		fileGRPCAddress   string
 		fileStoreInterval int
 		fileRestore       *bool
 	)
@@ -95,6 +104,8 @@ func main() {
 		fileStoreFile = fileConfig.StoreFile
 		fileCryptoKey = fileConfig.CryptoKey
 		fileDatabaseDSN = fileConfig.DatabaseDSN
+		fileTrustedSubnet = fileConfig.TrustedSubnet
+		fileGRPCAddress = fileConfig.GRPCAddress
 		fileRestore = fileConfig.Restore
 
 		if fileConfig.StoreInterval != "" {
@@ -105,12 +116,14 @@ func main() {
 	}
 
 	finalAddr := flags.GetConfigStringWithFile(addr, "a", "ADDRESS", fileAddress, "localhost:8080")
+	finalGRPCAddr := flags.GetConfigStringWithFile(grpcAddr, "grpc-addr", "GRPC_ADDRESS", fileGRPCAddress, "localhost:50051")
 	finalHashKey := flags.GetConfigStringWithFile(hashKey, "k", "KEY", fileHashKey, "")
 	finalAuditFile := flags.GetConfigStringWithFile(auditFile, "audit-file", "AUDIT_FILE", fileAuditFile, "")
 	finalAuditURL := flags.GetConfigStringWithFile(auditURL, "audit-url", "AUDIT_URL", fileAuditURL, "")
 	finalStoreFile := flags.GetConfigStringWithFile(storeFile, "f", "FILE_STORAGE_PATH", fileStoreFile, "/tmp/metrics-db.json")
 	finalCryptoKey := flags.GetConfigStringWithFile(cryptoKeyPath, "crypto-key", "CRYPTO_KEY", fileCryptoKey, "")
 	finalDatabaseDSN := flags.GetConfigStringWithFile(databaseDSN, "d", "DATABASE_DSN", fileDatabaseDSN, "")
+	finalTrustedSubnet := flags.GetConfigStringWithFile(trustedSubnet, "t", "TRUSTED_SUBNET", fileTrustedSubnet, "")
 	finalStoreInterval := flags.GetConfigIntWithFile(storeInterval, "i", "STORE_INTERVAL", fileStoreInterval, 300)
 	finalRestore := flags.GetConfigBoolWithFile(restore, "r", "RESTORE", fileRestore, true)
 
@@ -120,6 +133,8 @@ func main() {
 		AuditFile:     finalAuditFile,
 		AuditURL:      finalAuditURL,
 		CryptoKeyPath: finalCryptoKey,
+		TrustedSubnet: finalTrustedSubnet,
+		GRPCAddress:   finalGRPCAddr,
 	}
 
 	var store storage.Storage
@@ -165,35 +180,51 @@ func main() {
 		metricsHandler.SetDBConnectionError(dbConnectionError)
 	}
 
-	srv := server.New(config, metricsHandler)
+	httpSrv := server.New(config, metricsHandler)
+
+	grpcSrv := server.NewGRPCServer(store, httpSrv.GetLogger(), finalTrustedSubnet)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-	errChan := make(chan error, 1)
+	var wg sync.WaitGroup
+	errChan := make(chan error, 2)
+
+	wg.Add(1)
 	go func() {
-		if err := srv.Run(); err != nil && err != http.ErrServerClosed {
-			errChan <- err
+		defer wg.Done()
+		log.Printf("Starting HTTP server on %s", config.Addr)
+		if err := httpSrv.Run(); err != nil && err != http.ErrServerClosed {
+			errChan <- fmt.Errorf("HTTP server error: %w", err)
 		}
 	}()
 
-	fmt.Printf("Starting server on %s\n", config.Addr)
-	fmt.Printf("Using database: %v\n", usingDB)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Printf("Starting gRPC server on %s", finalGRPCAddr)
+		if err := grpcSrv.Start(finalGRPCAddr); err != nil {
+			errChan <- fmt.Errorf("gRPC server error: %w", err)
+		}
+	}()
+
+	fmt.Printf("\n✅ Server started successfully\n")
+	fmt.Printf("  HTTP:  %s\n", config.Addr)
+	fmt.Printf("  gRPC:  %s\n", finalGRPCAddr)
 	if finalHashKey != "" {
-		fmt.Printf("Hash key: %s\n", finalHashKey)
-	}
-	if config.AuditFile != "" {
-		fmt.Printf("Audit log file: %s\n", config.AuditFile)
-	}
-	if config.AuditURL != "" {
-		fmt.Printf("Audit URL: %s\n", config.AuditURL)
+		fmt.Printf("  Hash key: %s\n", finalHashKey)
 	}
 	if config.CryptoKeyPath != "" {
-		fmt.Printf("RSA encryption enabled with private key: %s\n", config.CryptoKeyPath)
+		fmt.Printf("  RSA encryption: enabled\n")
 	}
-	fmt.Printf("Store interval: %d seconds\n", finalStoreInterval)
-	fmt.Printf("Store file: %s\n", finalStoreFile)
-	fmt.Printf("Restore: %v\n", finalRestore)
+	if finalTrustedSubnet != "" {
+		fmt.Printf("  Trusted subnet: %s\n", finalTrustedSubnet)
+	}
+	fmt.Printf("  Database: %v\n", usingDB)
+	fmt.Printf("  Store interval: %d seconds\n", finalStoreInterval)
+	fmt.Printf("  Store file: %s\n", finalStoreFile)
+	fmt.Printf("  Restore: %v\n", finalRestore)
+	fmt.Println()
 
 	select {
 	case sig := <-sigChan:
@@ -202,14 +233,21 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		if err := srv.Shutdown(ctx); err != nil {
-			log.Printf("Server shutdown error: %v", err)
+		log.Println("Stopping HTTP server...")
+		if err := httpSrv.Shutdown(ctx); err != nil {
+			log.Printf("HTTP server shutdown error: %v", err)
 		} else {
-			log.Println("Server stopped gracefully")
+			log.Println("HTTP server stopped gracefully")
 		}
 
+		log.Println("Stopping gRPC server...")
+		grpcSrv.Stop()
+
+		wg.Wait()
+		log.Println("All servers stopped gracefully")
+
 	case err := <-errChan:
-		if err != nil && err != http.ErrServerClosed {
+		if err != nil {
 			log.Printf("Server error: %v", err)
 		}
 	}
