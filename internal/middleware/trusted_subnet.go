@@ -9,10 +9,9 @@ import (
 )
 
 // TrustedSubnetMiddleware проверяет, что IP-адрес клиента входит в доверенную подсеть
-func TrustedSubnetMiddleware(trustedSubnet string, logger *zap.Logger) gin.HandlerFunc {
+func TrustedSubnetMiddleware(ipNet *net.IPNet, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Если доверенная подсеть не указана, пропускаем все запросы
-		if trustedSubnet == "" {
+		if ipNet == nil {
 			c.Next()
 			return
 		}
@@ -29,20 +28,6 @@ func TrustedSubnetMiddleware(trustedSubnet string, logger *zap.Logger) gin.Handl
 			return
 		}
 
-		// Парсим доверенную подсеть
-		_, ipNet, err := net.ParseCIDR(trustedSubnet)
-		if err != nil {
-			logger.Error("Invalid trusted subnet CIDR",
-				zap.String("trusted_subnet", trustedSubnet),
-				zap.Error(err))
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "invalid trusted subnet configuration",
-			})
-			c.Abort()
-			return
-		}
-
-		// Парсим IP-адрес из заголовка
 		ip := net.ParseIP(realIP)
 		if ip == nil {
 			logger.Warn("Invalid IP address in X-Real-IP header",
@@ -58,7 +43,6 @@ func TrustedSubnetMiddleware(trustedSubnet string, logger *zap.Logger) gin.Handl
 		if !ipNet.Contains(ip) {
 			logger.Warn("IP address not in trusted subnet",
 				zap.String("ip", realIP),
-				zap.String("trusted_subnet", trustedSubnet),
 				zap.String("path", c.Request.URL.Path))
 			c.JSON(http.StatusForbidden, gin.H{
 				"error": "IP address not in trusted subnet",
@@ -68,8 +52,7 @@ func TrustedSubnetMiddleware(trustedSubnet string, logger *zap.Logger) gin.Handl
 		}
 
 		logger.Debug("IP address verified",
-			zap.String("ip", realIP),
-			zap.String("trusted_subnet", trustedSubnet))
+			zap.String("ip", realIP))
 
 		c.Next()
 	}

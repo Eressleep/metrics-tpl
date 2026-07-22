@@ -8,7 +8,6 @@ import (
 
 	"github.com/Eressleep/metrics-tpl/internal/proto"
 	"github.com/Eressleep/metrics-tpl/internal/storage"
-	"github.com/Eressleep/metrics-tpl/internal/utils"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -22,30 +21,119 @@ type GRPCServer struct {
 	storage       storage.Storage
 	logger        *zap.Logger
 	trustedSubnet string
+	ipNet         *net.IPNet // Предварительно распарсенный CIDR
 	grpcServer    *grpc.Server
 	listener      net.Listener
 }
 
 func NewGRPCServer(storage storage.Storage, logger *zap.Logger, trustedSubnet string) *GRPCServer {
-	return &GRPCServer{
+	var ipNet *net.IPNet
+	if trustedSubnet != "" {
+		_, parsed, err := net.ParseCIDR(trustedSubnet)
+		if err != nil {
+			logger.Error("Failed to parse trusted subnet CIDR",
+				zap.String("subnet", trustedSubnet),
+				zap.Error(err))
+		} else {
+			ipNet = parsed
+			logger.Info("Trusted subnet parsed successfully",
+				zap.String("subnet", trustedSubnet))
+		}
+	}
+
+	s := &GRPCServer{
 		storage:       storage,
 		logger:        logger,
 		trustedSubnet: trustedSubnet,
+		ipNet:         ipNet,
 	}
+
+	s.grpcServer = grpc.NewServer(
+		grpc.UnaryInterceptor(s.unaryInterceptor),
+	)
+
+	return s
 }
 
-// UpdateMetrics реализует метод gRPC сервиса
-func (s *GRPCServer) UpdateMetrics(ctx context.Context, req *proto.UpdateMetricsRequest) (*proto.UpdateMetricsResponse, error) {
-	// Проверяем доверенную подсеть
+// unaryInterceptor - перехватчик для проверки доверенной подсети
+func (s *GRPCServer) unaryInterceptor(
+	ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler,
+) (interface{}, error) {
 	if err := s.checkTrustedSubnet(ctx); err != nil {
 		return nil, err
 	}
 
+	s.logger.Debug("gRPC request",
+		zap.String("method", info.FullMethod))
+
+	return handler(ctx, req)
+}
+
+// checkTrustedSubnet проверяет, что IP адрес клиента входит в доверенную подсеть
+func (s *GRPCServer) checkTrustedSubnet(ctx context.Context) error {
+	if s.trustedSubnet == "" || s.ipNet == nil {
+		return nil
+	}
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		s.logger.Warn("No metadata in gRPC request")
+		return status.Errorf(codes.PermissionDenied, "metadata not found")
+	}
+
+	xRealIPs := md.Get("x-real-ip")
+	if len(xRealIPs) == 0 {
+		s.logger.Warn("X-Real-IP header missing in gRPC request")
+		return status.Errorf(codes.PermissionDenied, "X-Real-IP header required")
+	}
+	clientIP := xRealIPs[0]
+
+	if clientIP == "" {
+		p, ok := peer.FromContext(ctx)
+		if ok && p.Addr != nil {
+			host, _, err := net.SplitHostPort(p.Addr.String())
+			if err == nil {
+				clientIP = host
+			} else {
+				clientIP = strings.Split(p.Addr.String(), ":")[0]
+			}
+		}
+	}
+
+	if clientIP == "" {
+		s.logger.Warn("Unable to determine client IP")
+		return status.Errorf(codes.PermissionDenied, "unable to determine client IP")
+	}
+
+	ip := net.ParseIP(clientIP)
+	if ip == nil {
+		s.logger.Warn("Invalid client IP", zap.String("ip", clientIP))
+		return status.Errorf(codes.PermissionDenied, "invalid client IP: %s", clientIP)
+	}
+
+	if !s.ipNet.Contains(ip) {
+		s.logger.Warn("IP not in trusted subnet",
+			zap.String("ip", clientIP),
+			zap.String("subnet", s.trustedSubnet))
+		return status.Errorf(codes.PermissionDenied, "IP %s not in trusted subnet %s", clientIP, s.trustedSubnet)
+	}
+
+	s.logger.Debug("IP verified in trusted subnet",
+		zap.String("ip", clientIP),
+		zap.String("subnet", s.trustedSubnet))
+
+	return nil
+}
+
+// UpdateMetrics реализует метод gRPC сервиса
+func (s *GRPCServer) UpdateMetrics(ctx context.Context, req *proto.UpdateMetricsRequest) (*proto.UpdateMetricsResponse, error) {
 	if len(req.Metrics) == 0 {
 		return &proto.UpdateMetricsResponse{}, nil
 	}
 
-	// Конвертируем proto метрики в storage метрики
 	storageMetrics := make([]storage.Metrics, len(req.Metrics))
 	for i, m := range req.Metrics {
 		var delta *int64
@@ -68,7 +156,6 @@ func (s *GRPCServer) UpdateMetrics(ctx context.Context, req *proto.UpdateMetrics
 		}
 	}
 
-	// Сохраняем метрики
 	if err := s.storage.BatchUpdate(ctx, storageMetrics); err != nil {
 		s.logger.Error("Failed to update metrics via gRPC",
 			zap.Error(err),
@@ -82,66 +169,6 @@ func (s *GRPCServer) UpdateMetrics(ctx context.Context, req *proto.UpdateMetrics
 	return &proto.UpdateMetricsResponse{}, nil
 }
 
-// checkTrustedSubnet проверяет, что IP адрес клиента входит в доверенную подсеть
-func (s *GRPCServer) checkTrustedSubnet(ctx context.Context) error {
-	// Если доверенная подсеть не указана, пропускаем проверку
-	if s.trustedSubnet == "" {
-		return nil
-	}
-
-	// Получаем IP адрес из метаданных
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		s.logger.Warn("No metadata in gRPC request")
-		return status.Errorf(codes.PermissionDenied, "metadata not found")
-	}
-
-	// Проверяем X-Real-IP из метаданных
-	xRealIPs := md.Get("x-real-ip")
-	if len(xRealIPs) == 0 {
-		s.logger.Warn("X-Real-IP header missing in gRPC request")
-		return status.Errorf(codes.PermissionDenied, "X-Real-IP header required")
-	}
-	clientIP := xRealIPs[0]
-
-	// Если IP не получен, пытаемся получить его из peer
-	if clientIP == "" {
-		p, ok := peer.FromContext(ctx)
-		if ok && p.Addr != nil {
-			// Извлекаем IP из адреса
-			clientIP = strings.Split(p.Addr.String(), ":")[0]
-		}
-	}
-
-	if clientIP == "" {
-		s.logger.Warn("Unable to determine client IP")
-		return status.Errorf(codes.PermissionDenied, "unable to determine client IP")
-	}
-
-	// Проверяем IP в доверенной подсети
-	allowed, err := utils.IPInCIDR(clientIP, s.trustedSubnet)
-	if err != nil {
-		s.logger.Error("Failed to check IP in CIDR",
-			zap.String("ip", clientIP),
-			zap.String("subnet", s.trustedSubnet),
-			zap.Error(err))
-		return status.Errorf(codes.Internal, "failed to check IP: %v", err)
-	}
-
-	if !allowed {
-		s.logger.Warn("IP not in trusted subnet",
-			zap.String("ip", clientIP),
-			zap.String("subnet", s.trustedSubnet))
-		return status.Errorf(codes.PermissionDenied, "IP %s not in trusted subnet %s", clientIP, s.trustedSubnet)
-	}
-
-	s.logger.Debug("IP verified in trusted subnet",
-		zap.String("ip", clientIP),
-		zap.String("subnet", s.trustedSubnet))
-
-	return nil
-}
-
 // Start запускает gRPC сервер
 func (s *GRPCServer) Start(addr string) error {
 	lis, err := net.Listen("tcp", addr)
@@ -150,30 +177,12 @@ func (s *GRPCServer) Start(addr string) error {
 	}
 	s.listener = lis
 
-	s.grpcServer = grpc.NewServer(
-		grpc.UnaryInterceptor(s.unaryInterceptor),
-	)
 	proto.RegisterMetricsServer(s.grpcServer, s)
 
 	s.logger.Info("Starting gRPC server",
 		zap.String("address", addr))
 
 	return s.grpcServer.Serve(lis)
-}
-
-// unaryInterceptor перехватывает и логирует gRPC запросы
-func (s *GRPCServer) unaryInterceptor(
-	ctx context.Context,
-	req interface{},
-	info *grpc.UnaryServerInfo,
-	handler grpc.UnaryHandler,
-) (interface{}, error) {
-	// Логируем запрос
-	s.logger.Debug("gRPC request",
-		zap.String("method", info.FullMethod))
-
-	// Вызываем обработчик
-	return handler(ctx, req)
 }
 
 // Stop останавливает gRPC сервер

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"sync"
@@ -41,16 +42,17 @@ func NewDefaultConfig() *Config {
 }
 
 type Server struct {
-	config     *Config
-	router     *gin.Engine
-	handler    *handlers.MetricsHandler
-	httpSrv    *http.Server
-	logger     *zap.Logger
-	auditor    *audit.Auditor
-	privateKey *rsa.PrivateKey
-	storage    storage.Storage
-	mu         sync.RWMutex
-	stopped    bool
+	config       *Config
+	router       *gin.Engine
+	handler      *handlers.MetricsHandler
+	httpSrv      *http.Server
+	logger       *zap.Logger
+	auditor      *audit.Auditor
+	privateKey   *rsa.PrivateKey
+	storage      storage.Storage
+	trustedIPNet *net.IPNet
+	mu           sync.RWMutex
+	stopped      bool
 }
 
 func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
@@ -60,6 +62,20 @@ func New(config *Config, metricsHandler *handlers.MetricsHandler) *Server {
 
 func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logger *zap.Logger) *Server {
 	gin.SetMode(config.Mode)
+
+	var trustedIPNet *net.IPNet
+	if config.TrustedSubnet != "" {
+		_, ipNet, err := net.ParseCIDR(config.TrustedSubnet)
+		if err != nil {
+			logger.Error("Failed to parse trusted subnet CIDR",
+				zap.String("subnet", config.TrustedSubnet),
+				zap.Error(err))
+		} else {
+			trustedIPNet = ipNet
+			logger.Info("Trusted subnet parsed successfully",
+				zap.String("subnet", config.TrustedSubnet))
+		}
+	}
 
 	var privateKey *rsa.PrivateKey
 	if config.CryptoKeyPath != "" {
@@ -83,10 +99,10 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 
 	router.Use(gin.Logger(), gin.Recovery())
 
-	if config.TrustedSubnet != "" {
+	if trustedIPNet != nil {
 		logger.Info("Trusted subnet enabled",
 			zap.String("subnet", config.TrustedSubnet))
-		router.Use(middleware.TrustedSubnetMiddleware(config.TrustedSubnet, logger))
+		router.Use(middleware.TrustedSubnetMiddleware(trustedIPNet, logger))
 	}
 
 	router.Use(middleware.DecryptMiddleware(privateKey, logger))
@@ -128,10 +144,10 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	router.GET("/debug/pprof/block", gin.WrapF(pprof.Handler("block").ServeHTTP))
 
 	router.NoRoute(func(c *gin.Context) {
-		c.JSON(404, gin.H{"error": "endpoint not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "endpoint not found"})
 	})
 	router.NoMethod(func(c *gin.Context) {
-		c.JSON(405, gin.H{"error": "method not allowed"})
+		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "method not allowed"})
 	})
 
 	httpSrv := &http.Server{
@@ -140,13 +156,14 @@ func NewWithLogger(config *Config, metricsHandler *handlers.MetricsHandler, logg
 	}
 
 	return &Server{
-		config:     config,
-		router:     router,
-		handler:    metricsHandler,
-		httpSrv:    httpSrv,
-		logger:     logger,
-		auditor:    auditor,
-		privateKey: privateKey,
+		config:       config,
+		router:       router,
+		handler:      metricsHandler,
+		httpSrv:      httpSrv,
+		logger:       logger,
+		auditor:      auditor,
+		privateKey:   privateKey,
+		trustedIPNet: trustedIPNet,
 	}
 }
 
@@ -156,6 +173,20 @@ func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, rout
 
 	if router == nil {
 		return NewWithLogger(config, metricsHandler, logger)
+	}
+
+	var trustedIPNet *net.IPNet
+	if config.TrustedSubnet != "" {
+		_, ipNet, err := net.ParseCIDR(config.TrustedSubnet)
+		if err != nil {
+			logger.Error("Failed to parse trusted subnet CIDR",
+				zap.String("subnet", config.TrustedSubnet),
+				zap.Error(err))
+		} else {
+			trustedIPNet = ipNet
+			logger.Info("Trusted subnet parsed successfully",
+				zap.String("subnet", config.TrustedSubnet))
+		}
 	}
 
 	var privateKey *rsa.PrivateKey
@@ -176,10 +207,10 @@ func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, rout
 	router.RedirectTrailingSlash = false
 	router.RedirectFixedPath = false
 
-	if config.TrustedSubnet != "" {
+	if trustedIPNet != nil {
 		logger.Info("Trusted subnet enabled",
 			zap.String("subnet", config.TrustedSubnet))
-		router.Use(middleware.TrustedSubnetMiddleware(config.TrustedSubnet, logger))
+		router.Use(middleware.TrustedSubnetMiddleware(trustedIPNet, logger))
 	}
 
 	router.Use(middleware.DecryptMiddleware(privateKey, logger))
@@ -216,16 +247,18 @@ func NewWithRouter(config *Config, metricsHandler *handlers.MetricsHandler, rout
 	}
 
 	return &Server{
-		config:     config,
-		router:     router,
-		handler:    metricsHandler,
-		httpSrv:    httpSrv,
-		logger:     logger,
-		auditor:    auditor,
-		privateKey: privateKey,
+		config:       config,
+		router:       router,
+		handler:      metricsHandler,
+		httpSrv:      httpSrv,
+		logger:       logger,
+		auditor:      auditor,
+		privateKey:   privateKey,
+		trustedIPNet: trustedIPNet,
 	}
 }
 
+// Run запускает HTTP сервер
 func (s *Server) Run() error {
 	s.logger.Info("Starting metrics server",
 		zap.String("address", s.config.Addr))
@@ -243,7 +276,7 @@ func (s *Server) Run() error {
 	if s.privateKey != nil {
 		fmt.Println("  Encryption: enabled (RSA)")
 	}
-	if s.config.TrustedSubnet != "" {
+	if s.trustedIPNet != nil {
 		fmt.Printf("  Trusted subnet: %s\n", s.config.TrustedSubnet)
 	}
 
@@ -297,14 +330,22 @@ func (s *Server) Stop() error {
 	return s.Shutdown(ctx)
 }
 
+// GetRouter возвращает роутер
 func (s *Server) GetRouter() *gin.Engine {
 	return s.router
 }
 
+// GetLogger возвращает логгер
 func (s *Server) GetLogger() *zap.Logger {
 	return s.logger
 }
 
+// GetAuditor возвращает аудитор
 func (s *Server) GetAuditor() *audit.Auditor {
 	return s.auditor
+}
+
+// GetTrustedIPNet возвращает предварительно распарсенный CIDR
+func (s *Server) GetTrustedIPNet() *net.IPNet {
+	return s.trustedIPNet
 }

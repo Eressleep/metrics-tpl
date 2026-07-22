@@ -7,15 +7,27 @@ import (
 
 // GetOutboundIP получает исходящий IP-адрес хоста
 func GetOutboundIP() string {
-	// Подключаемся к публичному DNS серверу для получения локального IP
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		return ""
 	}
 	defer conn.Close()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP.String()
+	localAddr := conn.LocalAddr()
+	if localAddr == nil {
+		return ""
+	}
+
+	udpAddr, ok := localAddr.(*net.UDPAddr)
+	if !ok {
+		return ""
+	}
+
+	if udpAddr.IP == nil {
+		return ""
+	}
+
+	return udpAddr.IP.String()
 }
 
 // ParseCIDR парсит строку CIDR и возвращает IPNet
